@@ -1,0 +1,11 @@
+# Игнорировать ВСЁ в папке storage
+storage/**
+
+# Но НЕ игнорировать эти конкретные файлы:
+!storage/storage.go
+!storage/files/files.go
+# Добавить новое исключение
+!storage/storage/Gopher_888
+!read-adviser-bot.exe
+# Принудительно игнорировать пустые папки
+storage/files/
