@@ -2,7 +2,13 @@
 <module type="WEB_MODULE" version="4">
   <component name="Go" enabled="true" />
   <component name="NewModuleRootManager">
-    <content url="file://$MODULE_DIR$" />
+    <content url="file://$MODULE_DIR$">
+      <excludeFolder url="file://$MODULE_DIR$/storage/Nikki1204" />
+      <excludeFolder url="file://$MODULE_DIR$/storage/RangerFlame" />
+      <excludeFolder url="file://$MODULE_DIR$/storage/jeckside" />
+      <excludeFolder url="file://$MODULE_DIR$/storage/mechnik_bl9" />
+      <excludeFolder url="file://$MODULE_DIR$/storage/Gopher_888" />
+    </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>

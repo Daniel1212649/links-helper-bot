@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/url"
@@ -17,11 +18,6 @@ const (
 
 func (p *Processor) doCmd(text string, chatID int, username string) error {
 	text = strings.TrimSpace(text)
-
-	if text == "" {
-		log.Printf("empty message from '%s'", username)
-		return p.tg.SendMessage(chatID, "Please send text commands or URLs")
-	}
 
 	log.Printf("got new command '%s' from '%s'", text, username)
 
@@ -44,33 +40,36 @@ func (p *Processor) doCmd(text string, chatID int, username string) error {
 }
 
 func (p *Processor) savePage(chatID int, pageURL string, username string) (err error) {
-	defer func() { err = e.WrapIfErr("can't do command save page", err) }()
+	defer func() { err = e.WrapIfErr("can't do command: save page", err) }()
 
 	page := &storage.Page{
 		URL:      pageURL,
 		UserName: username,
 	}
 
-	isExists, err := p.storage.IsExists(page)
+	isExists, err := p.storage.IsExists(context.Background(), page)
 	if err != nil {
 		return err
 	}
 	if isExists {
 		return p.tg.SendMessage(chatID, msgAlreadyExists)
 	}
-	if err := p.storage.Save(page); err != nil {
+
+	if err := p.storage.Save(context.Background(), page); err != nil {
 		return err
 	}
+
 	if err := p.tg.SendMessage(chatID, msgSaved); err != nil {
 		return err
 	}
+
 	return nil
 }
 
 func (p *Processor) sendRandom(chatID int, username string) (err error) {
-	defer func() { err = e.WrapIfErr("can't do command send random", err) }()
+	defer func() { err = e.WrapIfErr("can't do command: can't send random", err) }()
 
-	page, err := p.storage.PickRandom(username)
+	page, err := p.storage.PickRandom(context.Background(), username)
 	if err != nil && !errors.Is(err, storage.ErrNoSavedPages) {
 		return err
 	}
@@ -81,7 +80,8 @@ func (p *Processor) sendRandom(chatID int, username string) (err error) {
 	if err := p.tg.SendMessage(chatID, page.URL); err != nil {
 		return err
 	}
-	return p.storage.Remove(page)
+
+	return p.storage.Remove(context.Background(), page)
 }
 
 func (p *Processor) sendHelp(chatID int) error {

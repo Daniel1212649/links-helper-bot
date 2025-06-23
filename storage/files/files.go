@@ -2,38 +2,33 @@ package files
 
 import (
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"time"
+
 	"read-adviser-bot/lib/e"
 	"read-adviser-bot/storage"
-	"time"
 )
-
-const defaultPerm = 0774
-
-//var ErrNoSavedPages = errors.New("no saved pages")
 
 type Storage struct {
 	basePath string
 }
 
+const defaultPerm = 0774
+
 func New(basePath string) Storage {
-	// Создаем базовую директорию при инициализации
-	if err := os.MkdirAll(basePath, defaultPerm); err != nil {
-		panic(fmt.Sprintf("can't create base storage path: %v", err))
-	}
 	return Storage{basePath: basePath}
 }
 
 func (s Storage) Save(page *storage.Page) (err error) {
 	defer func() { err = e.WrapIfErr("can't save page", err) }()
 
-	userDir := filepath.Join(s.basePath, page.UserName)
+	fPath := filepath.Join(s.basePath, page.UserName)
 
-	// Создаем пользовательскую директорию, если не существует
-	if err := os.MkdirAll(userDir, defaultPerm); err != nil {
+	if err := os.MkdirAll(fPath, defaultPerm); err != nil {
 		return err
 	}
 
@@ -42,13 +37,12 @@ func (s Storage) Save(page *storage.Page) (err error) {
 		return err
 	}
 
-	fPath := filepath.Join(userDir, fName)
+	fPath = filepath.Join(fPath, fName)
 
 	file, err := os.Create(fPath)
 	if err != nil {
 		return err
 	}
-
 	defer func() { _ = file.Close() }()
 
 	if err := gob.NewEncoder(file).Encode(page); err != nil {
@@ -63,6 +57,9 @@ func (s Storage) PickRandom(userName string) (page *storage.Page, err error) {
 
 	path := filepath.Join(s.basePath, userName)
 
+	// 1. check user folder
+	// 2. create folder
+
 	files, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
@@ -73,7 +70,6 @@ func (s Storage) PickRandom(userName string) (page *storage.Page, err error) {
 	}
 
 	rand.Seed(time.Now().UnixNano())
-
 	n := rand.Intn(len(files))
 
 	file := files[n]
@@ -90,9 +86,11 @@ func (s Storage) Remove(p *storage.Page) error {
 	path := filepath.Join(s.basePath, p.UserName, fileName)
 
 	if err := os.Remove(path); err != nil {
-		msg := fmt.Sprintf("can't remove file %q: %v", fileName, err)
+		msg := fmt.Sprintf("can't remove file %s", path)
+
 		return e.Wrap(msg, err)
 	}
+
 	return nil
 }
 
@@ -102,21 +100,15 @@ func (s Storage) IsExists(p *storage.Page) (bool, error) {
 		return false, e.Wrap("can't check if file exists", err)
 	}
 
-	userDir := filepath.Join(s.basePath, p.UserName)
-	filePath := filepath.Join(userDir, fileName)
+	path := filepath.Join(s.basePath, p.UserName, fileName)
 
-	// Проверяем существование пользовательской директории
-	if _, err := os.Stat(userDir); os.IsNotExist(err) {
+	switch _, err = os.Stat(path); {
+	case errors.Is(err, os.ErrNotExist):
 		return false, nil
-	}
+	case err != nil:
+		msg := fmt.Sprintf("can't check if file %s exists", path)
 
-	// Проверяем существование файла
-	_, err = os.Stat(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, e.Wrap("can't check file existence", err)
+		return false, e.Wrap(msg, err)
 	}
 
 	return true, nil
@@ -127,7 +119,6 @@ func (s Storage) decodePage(filePath string) (*storage.Page, error) {
 	if err != nil {
 		return nil, e.Wrap("can't decode page", err)
 	}
-
 	defer func() { _ = f.Close() }()
 
 	var p storage.Page
