@@ -1,44 +1,42 @@
 package main
 
 import (
-	"flag"
+	"context"
 	"log"
-	tgClient "read-adviser-bot/clients/telegram"
-	event_consumer "read-adviser-bot/consumer/event-consumer"
-	"read-adviser-bot/events/telegram"
-	"read-adviser-bot/storage/files"
-)
+	"os/signal"
+	"syscall"
 
-const (
-	tgBotHost   = "api.telegram.org"
-	storagePath = "storage"
-	batchSize   = 100
+	"github.com/Daniel1212649/LinksHelperBot/clients/telegram"
+	"github.com/Daniel1212649/LinksHelperBot/config"
+	eventconsumer "github.com/Daniel1212649/LinksHelperBot/consumer/event-consumer"
+	tgevents "github.com/Daniel1212649/LinksHelperBot/events/telegram"
+	"github.com/Daniel1212649/LinksHelperBot/storage/postgres"
 )
 
 func main() {
-	eventsProcessor := telegram.New(
-		tgClient.New(tgBotHost, mustToken()),
-		files.New(storagePath),
-	)
-	log.Print("Service started")
-
-	consumer := event_consumer.New(eventsProcessor, eventsProcessor, batchSize)
-
-	if err := consumer.Start(); err != nil {
-		log.Fatal("Servise is stopped", err)
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
 	}
-}
 
-func mustToken() string {
-	token := flag.String(
-		"tg-bot-token",
-		"",
-		"token for an access to telegram bot")
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-	flag.Parse()
-
-	if *token == "" {
-		log.Fatal("token is required")
+	db, err := postgres.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("can't connect to postgres: %v", err)
 	}
-	return *token
+	defer db.Close()
+
+	tgClient := telegram.New(cfg.TelegramAPIHost, cfg.TelegramBotToken, cfg.HTTPTimeout)
+	eventsProcessor := tgevents.New(tgClient, db)
+	consumer := eventconsumer.New(eventsProcessor, eventsProcessor, cfg.PollBatchSize, cfg.PollInterval)
+
+	log.Printf("service started env=%s", cfg.AppEnv)
+
+	if err := consumer.Start(ctx); err != nil {
+		log.Fatalf("service stopped: %v", err)
+	}
+
+	log.Print("service stopped gracefully")
 }

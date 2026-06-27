@@ -1,36 +1,93 @@
 package storage
 
 import (
-	"crypto/sha1"
+	"context"
 	"errors"
-	"fmt"
-	"io"
-	"read-adviser-bot/lib/e"
+	"net/url"
+	"strings"
+	"time"
 )
 
-var ErrNoSavedPages = errors.New("no saved pages")
+var (
+	ErrNoSavedPages = errors.New("no saved pages")
+	ErrPageExists   = errors.New("page already exists")
+)
+
+const (
+	StatusUnread  = "unread"
+	StatusRead    = "read"
+	StatusDeleted = "deleted"
+)
 
 type Storage interface {
-	Save(p *Page) error
-	PickRandom(userName string) (*Page, error)
-	Remove(p *Page) error
-	IsExists(p *Page) (bool, error)
+	Save(ctx context.Context, user User, rawURL string) (*Page, error)
+	PickRandom(ctx context.Context, user User) (*Page, error)
+	MarkRead(ctx context.Context, user User, id int64) error
+	Remove(ctx context.Context, user User, id int64) error
+	List(ctx context.Context, user User, limit int) ([]Page, error)
+	Search(ctx context.Context, user User, query string, limit int) ([]Page, error)
+	Stats(ctx context.Context, user User) (Stats, error)
+}
+
+type User struct {
+	TelegramID int64
+	ChatID     int64
+	Username   string
 }
 
 type Page struct {
-	URL      string
-	UserName string
+	ID            int64
+	URL           string
+	NormalizedURL string
+	Title         string
+	Description   string
+	Status        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	ReadAt        *time.Time
 }
 
-func (p *Page) Hash() (string, error) {
-	h := sha1.New()
-	if _, err := io.WriteString(h, p.URL); err != nil {
-		return "", e.Wrap("can't calculate hash", err)
+type Stats struct {
+	Total  int64
+	Unread int64
+	Read   int64
+}
+
+func NormalizeURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme == "" {
+		parsed, err = url.Parse("https://" + raw)
+		if err != nil {
+			return "", err
+		}
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", errors.New("only http and https links are supported")
+	}
+	if parsed.Host == "" {
+		return "", errors.New("link host is required")
 	}
 
-	if _, err := io.WriteString(h, p.UserName); err != nil {
-		return "", e.Wrap("can't calculate hash", err)
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = strings.ToLower(parsed.Host)
+	parsed.Fragment = ""
+
+	query := parsed.Query()
+	for key := range query {
+		lowerKey := strings.ToLower(key)
+		if strings.HasPrefix(lowerKey, "utm_") || lowerKey == "fbclid" || lowerKey == "gclid" {
+			query.Del(key)
+		}
+	}
+	parsed.RawQuery = query.Encode()
+
+	if parsed.Path == "/" {
+		parsed.Path = ""
 	}
 
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
+	return parsed.String(), nil
 }

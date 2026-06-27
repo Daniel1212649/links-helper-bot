@@ -1,18 +1,25 @@
 package telegram
 
-const msgHelp = `I can save and keep your pages. Also I can offer you them to read.
+const msgHelp = `LinksHelperBot saves links and helps you return to them later.
 
-	In order to save the page, just send me al link to it.
+Commands:
+/save <url> - save a link
+/rnd - get a random unread link and mark it as read
+/list - show latest saved links
+/search <text> - search by URL or title
+/delete <id> - delete a link by ID
+/stats - show your link stats
+/help - show this help
 
-	In order to get a random page from your list, send me command /rnd 💼.
+You can also send any http/https URL without a command.`
 
-	Caution! After that, this page will be removed from your list!`
-
-const msgHello = "Hi there! 😎  \n\n" + msgHelp
+const msgHello = "Hi! Send me a link and I will save it for later.\n\n" + msgHelp
 
 const (
-	msgUknownCommand = "Uknown command  🤔"
-	msgNoSavedPages  = "You have not saved pages  🙊"
-	msgSaved         = "Saved! 👌"
-	msgAlreadyExists = "You already have this page in your list  🥰"
+	msgUnknownCommand = "Unknown command. Send /help to see available commands."
+	msgEmptyMessage   = "Please send a command or a link."
+	msgNoSavedPages   = "You have no unread saved links."
+	msgSaved          = "Saved."
+	msgAlreadyExists  = "This link is already in your list."
+	msgInvalidURL     = "I can save only valid http/https links."
 )

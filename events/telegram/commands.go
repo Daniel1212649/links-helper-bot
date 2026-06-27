@@ -1,95 +1,173 @@
 package telegram
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log"
-	"net/url"
-	"read-adviser-bot/lib/e"
-	"read-adviser-bot/storage"
+	"strconv"
 	"strings"
+
+	"github.com/Daniel1212649/LinksHelperBot/lib/e"
+	"github.com/Daniel1212649/LinksHelperBot/storage"
 )
 
 const (
-	RndCmd   = "/rnd"
-	HelpCmd  = "/help"
-	StartCmd = "/start"
+	rndCmd    = "/rnd"
+	helpCmd   = "/help"
+	startCmd  = "/start"
+	saveCmd   = "/save"
+	listCmd   = "/list"
+	searchCmd = "/search"
+	deleteCmd = "/delete"
+	statsCmd  = "/stats"
 )
 
-func (p *Processor) doCmd(text string, chatID int, username string) error {
+func (p *Processor) doCmd(ctx context.Context, text string, meta Meta) error {
 	text = strings.TrimSpace(text)
 
 	if text == "" {
-		log.Printf("empty message from '%s'", username)
-		return p.tg.SendMessage(chatID, "Please send text commands or URLs")
+		log.Printf("empty message from chat_id=%d username=%q", meta.ChatID, meta.Username)
+		return p.tg.SendMessage(ctx, meta.ChatID, msgEmptyMessage)
 	}
 
-	log.Printf("got new command '%s' from '%s'", text, username)
+	log.Printf("got new command %q from chat_id=%d username=%q", text, meta.ChatID, meta.Username)
 
 	if isAddCmd(text) {
-		return p.savePage(chatID, text, username)
-
+		return p.savePage(ctx, meta, text)
 	}
 
-	switch text {
-	case RndCmd:
-		return p.sendRandom(chatID, username)
-	case HelpCmd:
-		return p.sendHelp(chatID)
-	case StartCmd:
-
-		return p.sendHello(chatID)
+	command, argument := splitCommand(text)
+	switch command {
+	case rndCmd:
+		return p.sendRandom(ctx, meta)
+	case helpCmd:
+		return p.sendHelp(ctx, meta.ChatID)
+	case startCmd:
+		return p.sendHello(ctx, meta.ChatID)
+	case saveCmd:
+		return p.savePage(ctx, meta, argument)
+	case listCmd:
+		return p.sendList(ctx, meta)
+	case searchCmd:
+		return p.search(ctx, meta, argument)
+	case deleteCmd:
+		return p.delete(ctx, meta, argument)
+	case statsCmd:
+		return p.sendStats(ctx, meta)
 	default:
-		return p.tg.SendMessage(chatID, msgUknownCommand)
+		return p.tg.SendMessage(ctx, meta.ChatID, msgUnknownCommand)
 	}
 }
 
-func (p *Processor) savePage(chatID int, pageURL string, username string) (err error) {
-	defer func() { err = e.WrapIfErr("can't do command save page", err) }()
+func (p *Processor) savePage(ctx context.Context, meta Meta, pageURL string) (err error) {
+	defer func() { err = e.WrapIfErr("can't save page", err) }()
 
-	page := &storage.Page{
-		URL:      pageURL,
-		UserName: username,
+	if !isURL(pageURL) {
+		return p.tg.SendMessage(ctx, meta.ChatID, msgInvalidURL)
 	}
 
-	isExists, err := p.storage.IsExists(page)
+	_, err = p.storage.Save(ctx, userFromMeta(meta), pageURL)
+	if errors.Is(err, storage.ErrPageExists) {
+		return p.tg.SendMessage(ctx, meta.ChatID, msgAlreadyExists)
+	}
 	if err != nil {
 		return err
 	}
-	if isExists {
-		return p.tg.SendMessage(chatID, msgAlreadyExists)
-	}
-	if err := p.storage.Save(page); err != nil {
-		return err
-	}
-	if err := p.tg.SendMessage(chatID, msgSaved); err != nil {
-		return err
-	}
-	return nil
+
+	return p.tg.SendMessage(ctx, meta.ChatID, msgSaved)
 }
 
-func (p *Processor) sendRandom(chatID int, username string) (err error) {
-	defer func() { err = e.WrapIfErr("can't do command send random", err) }()
+func (p *Processor) sendRandom(ctx context.Context, meta Meta) (err error) {
+	defer func() { err = e.WrapIfErr("can't send random page", err) }()
 
-	page, err := p.storage.PickRandom(username)
-	if err != nil && !errors.Is(err, storage.ErrNoSavedPages) {
-		return err
-	}
+	page, err := p.storage.PickRandom(ctx, userFromMeta(meta))
 	if errors.Is(err, storage.ErrNoSavedPages) {
-		return p.tg.SendMessage(chatID, msgNoSavedPages)
+		return p.tg.SendMessage(ctx, meta.ChatID, msgNoSavedPages)
 	}
-
-	if err := p.tg.SendMessage(chatID, page.URL); err != nil {
+	if err != nil {
 		return err
 	}
-	return p.storage.Remove(page)
+
+	if err := p.tg.SendMessage(ctx, meta.ChatID, formatPage(page)); err != nil {
+		return err
+	}
+
+	return p.storage.MarkRead(ctx, userFromMeta(meta), page.ID)
 }
 
-func (p *Processor) sendHelp(chatID int) error {
-	return p.tg.SendMessage(chatID, msgHelp)
+func (p *Processor) sendList(ctx context.Context, meta Meta) error {
+	pages, err := p.storage.List(ctx, userFromMeta(meta), 10)
+	if err != nil {
+		return e.Wrap("can't list pages", err)
+	}
+	if len(pages) == 0 {
+		return p.tg.SendMessage(ctx, meta.ChatID, "Your list is empty.")
+	}
+
+	return p.tg.SendMessage(ctx, meta.ChatID, formatPages("Latest links:", pages))
 }
 
-func (p *Processor) sendHello(chatID int) error {
-	return p.tg.SendMessage(chatID, msgHello)
+func (p *Processor) search(ctx context.Context, meta Meta, query string) error {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return p.tg.SendMessage(ctx, meta.ChatID, "Usage: /search <text>")
+	}
+
+	pages, err := p.storage.Search(ctx, userFromMeta(meta), query, 10)
+	if err != nil {
+		return e.Wrap("can't search pages", err)
+	}
+	if len(pages) == 0 {
+		return p.tg.SendMessage(ctx, meta.ChatID, "Nothing found.")
+	}
+
+	return p.tg.SendMessage(ctx, meta.ChatID, formatPages("Search results:", pages))
+}
+
+func (p *Processor) delete(ctx context.Context, meta Meta, argument string) error {
+	argument = strings.TrimSpace(argument)
+	if argument == "" {
+		return p.tg.SendMessage(ctx, meta.ChatID, "Usage: /delete <id>")
+	}
+
+	id, err := strconv.ParseInt(argument, 10, 64)
+	if err != nil || id <= 0 {
+		return p.tg.SendMessage(ctx, meta.ChatID, "Link ID must be a positive number.")
+	}
+
+	if err := p.storage.Remove(ctx, userFromMeta(meta), id); err != nil {
+		return e.Wrap("can't delete page", err)
+	}
+
+	return p.tg.SendMessage(ctx, meta.ChatID, "Deleted.")
+}
+
+func (p *Processor) sendStats(ctx context.Context, meta Meta) error {
+	stats, err := p.storage.Stats(ctx, userFromMeta(meta))
+	if err != nil {
+		return e.Wrap("can't get stats", err)
+	}
+
+	message := fmt.Sprintf("Stats:\nTotal: %d\nUnread: %d\nRead: %d", stats.Total, stats.Unread, stats.Read)
+	return p.tg.SendMessage(ctx, meta.ChatID, message)
+}
+
+func (p *Processor) sendHelp(ctx context.Context, chatID int64) error {
+	return p.tg.SendMessage(ctx, chatID, msgHelp)
+}
+
+func (p *Processor) sendHello(ctx context.Context, chatID int64) error {
+	return p.tg.SendMessage(ctx, chatID, msgHello)
+}
+
+func splitCommand(text string) (string, string) {
+	parts := strings.SplitN(text, " ", 2)
+	command := strings.ToLower(parts[0])
+	if len(parts) == 1 {
+		return command, ""
+	}
+	return command, strings.TrimSpace(parts[1])
 }
 
 func isAddCmd(text string) bool {
@@ -97,7 +175,19 @@ func isAddCmd(text string) bool {
 }
 
 func isURL(text string) bool {
-	u, err := url.Parse(text)
+	_, err := storage.NormalizeURL(text)
+	return err == nil
+}
 
-	return err == nil && u.Host != ""
+func formatPage(page *storage.Page) string {
+	return fmt.Sprintf("#%d\n%s", page.ID, page.URL)
+}
+
+func formatPages(title string, pages []storage.Page) string {
+	var builder strings.Builder
+	builder.WriteString(title)
+	for _, page := range pages {
+		builder.WriteString(fmt.Sprintf("\n#%d [%s] %s", page.ID, page.Status, page.URL))
+	}
+	return builder.String()
 }

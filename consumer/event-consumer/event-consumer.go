@@ -1,56 +1,77 @@
-package event_consumer
+package eventconsumer
 
 import (
+	"context"
+	"errors"
 	"log"
-	"read-adviser-bot/events"
 	"time"
+
+	"github.com/Daniel1212649/LinksHelperBot/events"
 )
 
 type Consumer struct {
-	fetcher   events.Fetcher
-	processor events.Processor
-	batchSize int
+	fetcher      events.Fetcher
+	processor    events.Processor
+	batchSize    int
+	pollInterval time.Duration
 }
 
-func New(fetcher events.Fetcher, processor events.Processor, batchSize int) Consumer {
+func New(fetcher events.Fetcher, processor events.Processor, batchSize int, pollInterval time.Duration) Consumer {
 	return Consumer{
-		fetcher:   fetcher,
-		processor: processor,
-		batchSize: batchSize,
+		fetcher:      fetcher,
+		processor:    processor,
+		batchSize:    batchSize,
+		pollInterval: pollInterval,
 	}
 }
 
-func (c Consumer) Start() error {
+func (c Consumer) Start(ctx context.Context) error {
 	for {
-		gotEvents, err := c.fetcher.Fetch(c.batchSize)
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		gotEvents, err := c.fetcher.Fetch(ctx, c.batchSize)
 		if err != nil {
 			log.Printf("[ERR] consumer: %s", err.Error())
-
+			if err := sleep(ctx, c.pollInterval); err != nil {
+				return nil
+			}
 			continue
 		}
 
 		if len(gotEvents) == 0 {
-			time.Sleep(1 * time.Second)
-
+			if err := sleep(ctx, c.pollInterval); err != nil {
+				return nil
+			}
 			continue
 		}
-		if err := c.handleEvent(gotEvents); err != nil {
-			log.Print(err)
 
+		c.handleEvents(ctx, gotEvents)
+	}
+}
+
+func (c Consumer) handleEvents(ctx context.Context, events []events.Event) {
+	for _, event := range events {
+		log.Printf("got new event: %s", event.Text)
+
+		if err := c.processor.Process(ctx, event); err != nil {
+			log.Printf("can't handle event: %s", err.Error())
 			continue
 		}
 	}
 }
 
-func (c Consumer) handleEvent(events []events.Event) error {
-	for _, event := range events {
-		log.Printf("got new event: %s", event.Text)
+func sleep(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
 
-		if err := c.processor.Process(event); err != nil {
-			log.Printf("can't handle event: %s", err.Error())
-
-			continue
-		}
+	select {
+	case <-ctx.Done():
+		return errors.New("context canceled")
+	case <-timer.C:
+		return nil
 	}
-	return nil
 }
