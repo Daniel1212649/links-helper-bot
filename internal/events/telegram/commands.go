@@ -438,9 +438,40 @@ func findSaveOptionMarkers(text string) []saveOptionMarker {
 			searchFrom = index + len(marker)
 		}
 	}
+
+	markers = append(markers, findShorthandSaveMarkers(text)...)
 	sort.Slice(markers, func(i, j int) bool {
 		return markers[i].start < markers[j].start
 	})
+	return markers
+}
+
+func findShorthandSaveMarkers(text string) []saveOptionMarker {
+	shorthands := []struct {
+		char rune
+		name string
+	}{
+		{'#', "group"},
+		{'@', "remind"},
+	}
+
+	markers := make([]saveOptionMarker, 0)
+	for _, shorthand := range shorthands {
+		searchFrom := 0
+		for searchFrom < len(text) {
+			index := strings.IndexRune(text[searchFrom:], shorthand.char)
+			if index == -1 {
+				break
+			}
+			index += searchFrom
+			if index > 0 && text[index-1] != ' ' {
+				searchFrom = index + 1
+				continue
+			}
+			markers = append(markers, saveOptionMarker{name: shorthand.name, start: index, length: 1})
+			searchFrom = index + 1
+		}
+	}
 	return markers
 }
 

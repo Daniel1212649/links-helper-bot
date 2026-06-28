@@ -45,6 +45,23 @@ func TestParseSaveArgs(t *testing.T) {
 			wantMatched: true,
 		},
 		{
+			name:        "url with shorthand group and reminder",
+			in:          "https://example.com note text #group name @2026-07-01 09:30",
+			wantURL:     "https://example.com",
+			wantNote:    "note text",
+			wantGroup:   "group name",
+			wantRemind:  "2026-07-01 09:30",
+			wantMatched: true,
+		},
+		{
+			name:        "url with shorthand reminder only",
+			in:          "https://example.com note text @2026-07-01",
+			wantURL:     "https://example.com",
+			wantNote:    "note text",
+			wantRemind:  "2026-07-01 09:00",
+			wantMatched: true,
+		},
+		{
 			name:        "url with group and reminder",
 			in:          "https://example.com useful article --group Go --remind 2026-07-01 09:30",
 			wantURL:     "https://example.com",
