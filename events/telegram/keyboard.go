@@ -16,6 +16,9 @@ const (
 	cbCmdStats  = "cmd:stats"
 	cbCmdSearch = "cmd:search"
 	cbCmdDelete = "cmd:delete"
+	cbCmdLang   = "cmd:lang"
+	cbLangRU    = "lang:ru"
+	cbLangEN    = "lang:en"
 )
 
 func cbRead(id int64) string {
@@ -26,13 +29,48 @@ func cbDelete(id int64) string {
 	return fmt.Sprintf("del:%d", id)
 }
 
-func mainMenuKeyboard() *tgclient.InlineKeyboardMarkup {
+func mainMenuKeyboard(locale string) *tgclient.InlineKeyboardMarkup {
 	return &tgclient.InlineKeyboardMarkup{
-		InlineKeyboard: mainMenuRows(),
+		InlineKeyboard: mainMenuRows(locale),
 	}
 }
 
-func mainMenuRows() [][]tgclient.InlineKeyboardButton {
+func languageKeyboard(locale string) *tgclient.InlineKeyboardMarkup {
+	return &tgclient.InlineKeyboardMarkup{
+		InlineKeyboard: append([][]tgclient.InlineKeyboardButton{
+			{
+				{Text: "🇷🇺 Русский", CallbackData: cbLangRU},
+				{Text: "🇬🇧 English", CallbackData: cbLangEN},
+			},
+		}, mainMenuRows(locale)...),
+	}
+}
+
+func mainMenuRows(locale string) [][]tgclient.InlineKeyboardButton {
+	if storage.NormalizeLocale(locale) == storage.LocaleEN {
+		return [][]tgclient.InlineKeyboardButton{
+			{
+				{Text: "👋 Start", CallbackData: cbCmdStart},
+				{Text: "📖 Help", CallbackData: cbCmdHelp},
+			},
+			{
+				{Text: "💾 Save", CallbackData: cbCmdSave},
+				{Text: "🎲 Random", CallbackData: cbCmdRnd},
+			},
+			{
+				{Text: "📋 List", CallbackData: cbCmdList},
+				{Text: "📊 Stats", CallbackData: cbCmdStats},
+			},
+			{
+				{Text: "🔍 Search", CallbackData: cbCmdSearch},
+				{Text: "🗑 Delete", CallbackData: cbCmdDelete},
+			},
+			{
+				{Text: "🌐 Language", CallbackData: cbCmdLang},
+			},
+		}
+	}
+
 	return [][]tgclient.InlineKeyboardButton{
 		{
 			{Text: "👋 Старт", CallbackData: cbCmdStart},
@@ -50,24 +88,36 @@ func mainMenuRows() [][]tgclient.InlineKeyboardButton {
 			{Text: "🔍 Поиск", CallbackData: cbCmdSearch},
 			{Text: "🗑 Удалить", CallbackData: cbCmdDelete},
 		},
+		{
+			{Text: "🌐 Язык", CallbackData: cbCmdLang},
+		},
 	}
 }
 
-func linkActionKeyboard(pageID int64) *tgclient.InlineKeyboardMarkup {
-	rows := mainMenuRows()
+func linkActionKeyboard(locale string, pageID int64) *tgclient.InlineKeyboardMarkup {
+	rows := mainMenuRows(locale)
+	actionRow := []tgclient.InlineKeyboardButton{
+		{Text: "✅ Прочитано", CallbackData: cbRead(pageID)},
+		{Text: "🗑 Удалить", CallbackData: cbDelete(pageID)},
+		{Text: "🎲 Ещё", CallbackData: cbCmdRnd},
+	}
+	if storage.NormalizeLocale(locale) == storage.LocaleEN {
+		actionRow = []tgclient.InlineKeyboardButton{
+			{Text: "✅ Read", CallbackData: cbRead(pageID)},
+			{Text: "🗑 Delete", CallbackData: cbDelete(pageID)},
+			{Text: "🎲 Another", CallbackData: cbCmdRnd},
+		}
+	}
+
 	rows = append([][]tgclient.InlineKeyboardButton{
-		{
-			{Text: "✅ Прочитано", CallbackData: cbRead(pageID)},
-			{Text: "🗑 Удалить", CallbackData: cbDelete(pageID)},
-			{Text: "🎲 Ещё", CallbackData: cbCmdRnd},
-		},
+		actionRow,
 	}, rows...)
 
 	return &tgclient.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
-func listActionKeyboard(pages []storage.Page) *tgclient.InlineKeyboardMarkup {
-	rows := make([][]tgclient.InlineKeyboardButton, 0, len(pages)/2+len(mainMenuRows()))
+func listActionKeyboard(locale string, pages []storage.Page) *tgclient.InlineKeyboardMarkup {
+	rows := make([][]tgclient.InlineKeyboardButton, 0, len(pages)/2+len(mainMenuRows(locale)))
 
 	for i := 0; i < len(pages); i += 2 {
 		row := []tgclient.InlineKeyboardButton{
@@ -82,6 +132,6 @@ func listActionKeyboard(pages []storage.Page) *tgclient.InlineKeyboardMarkup {
 		rows = append(rows, row)
 	}
 
-	rows = append(rows, mainMenuRows()...)
+	rows = append(rows, mainMenuRows(locale)...)
 	return &tgclient.InlineKeyboardMarkup{InlineKeyboard: rows}
 }

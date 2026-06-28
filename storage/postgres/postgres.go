@@ -210,10 +210,40 @@ func (s *Storage) Stats(ctx context.Context, user storage.User) (storage.Stats, 
 	return stats, err
 }
 
+func (s *Storage) GetLocale(ctx context.Context, user storage.User) (string, error) {
+	userID, err := s.ensureUser(ctx, user)
+	if err != nil {
+		return storage.LocaleRU, err
+	}
+
+	const query = `select locale from users where id = $1`
+
+	var locale string
+	if err := s.pool.QueryRow(ctx, query, userID).Scan(&locale); err != nil {
+		return storage.LocaleRU, err
+	}
+	return storage.NormalizeLocale(locale), nil
+}
+
+func (s *Storage) SetLocale(ctx context.Context, user storage.User, locale string) error {
+	userID, err := s.ensureUser(ctx, user)
+	if err != nil {
+		return err
+	}
+
+	const query = `
+		update users
+		set locale = $1, updated_at = now()
+		where id = $2`
+
+	_, err = s.pool.Exec(ctx, query, storage.NormalizeLocale(locale), userID)
+	return err
+}
+
 func (s *Storage) ensureUser(ctx context.Context, user storage.User) (int64, error) {
 	const query = `
-		insert into users (telegram_user_id, username, chat_id)
-		values (nullif($1, 0), nullif($2, ''), $3)
+		insert into users (telegram_user_id, username, chat_id, locale)
+		values (nullif($1, 0), nullif($2, ''), $3, $4)
 		on conflict (chat_id) do update
 		set telegram_user_id = coalesce(excluded.telegram_user_id, users.telegram_user_id),
 			username = coalesce(excluded.username, users.username),
@@ -221,7 +251,7 @@ func (s *Storage) ensureUser(ctx context.Context, user storage.User) (int64, err
 		returning id`
 
 	var id int64
-	err := s.pool.QueryRow(ctx, query, user.TelegramID, user.Username, user.ChatID).Scan(&id)
+	err := s.pool.QueryRow(ctx, query, user.TelegramID, user.Username, user.ChatID, storage.NormalizeLocale(user.Locale)).Scan(&id)
 	return id, err
 }
 

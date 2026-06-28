@@ -16,9 +16,10 @@ var (
 )
 
 type Meta struct {
-	ChatID     int64
-	TelegramID int64
-	Username   string
+	ChatID       int64
+	TelegramID   int64
+	Username     string
+	LanguageCode string
 }
 
 type Processor struct {
@@ -102,6 +103,7 @@ func mapUpdate(update tgclient.Update) (events.Event, bool) {
 				MessageID:       cb.Message.MessageID,
 				TelegramID:      cb.From.ID,
 				Username:        cb.From.Username,
+				LanguageCode:    cb.From.LanguageCode,
 				Data:            cb.Data,
 			},
 		}, true
@@ -115,9 +117,10 @@ func mapUpdate(update tgclient.Update) (events.Event, bool) {
 		Type: events.Message,
 		Text: update.Message.Text,
 		Meta: Meta{
-			ChatID:     update.Message.Chat.ID,
-			TelegramID: update.Message.From.ID,
-			Username:   update.Message.From.Username,
+			ChatID:       update.Message.Chat.ID,
+			TelegramID:   update.Message.From.ID,
+			Username:     update.Message.From.Username,
+			LanguageCode: update.Message.From.LanguageCode,
 		},
 	}, true
 }
@@ -127,5 +130,6 @@ func userFromMeta(meta Meta) storage.User {
 		TelegramID: meta.TelegramID,
 		ChatID:     meta.ChatID,
 		Username:   meta.Username,
+		Locale:     localeFromLanguageCode(meta.LanguageCode),
 	}
 }

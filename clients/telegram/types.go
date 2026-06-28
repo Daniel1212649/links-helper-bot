@@ -34,8 +34,9 @@ type CallbackQuery struct {
 }
 
 type From struct {
-	ID       int64  `json:"id"`
-	Username string `json:"username"`
+	ID           int64  `json:"id"`
+	Username     string `json:"username"`
+	LanguageCode string `json:"language_code"`
 }
 
 type Chat struct {

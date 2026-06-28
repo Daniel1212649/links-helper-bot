@@ -11,6 +11,7 @@ Telegram bot for saving links and returning to them later.
 - Search saved links with `/search <text>`.
 - Delete a link with `/delete <id>` or inline 🗑 buttons.
 - Check counters with `/stats`.
+- Switch between Russian and English with `/lang` or the 🌐 button.
 - Use inline buttons for quick navigation and link actions.
 - Store data in PostgreSQL.
 - Run locally or on a server with Docker Compose.
@@ -26,9 +27,10 @@ Telegram bot for saving links and returning to them later.
 /stats          📊 show total, unread and read counters
 /search <text>  🔍 search by URL or title
 /delete <id>    🗑 delete a saved link by ID
+/lang [ru|en]   🌐 choose interface language
 ```
 
-Inline buttons: 👋 start, 📖 help, 💾 save, 🎲 random, 📋 list, 📊 stats, 🔍 search, 🗑 delete.
+Inline buttons: 👋 start, 📖 help, 💾 save, 🎲 random, 📋 list, 📊 stats, 🔍 search, 🗑 delete, 🌐 language.
 
 ## Local Run With Docker
 
@@ -69,7 +71,7 @@ go test ./...
 go run ./cmd/links-helper-bot
 ```
 
-Apply the SQL migration from `migrations/000001_init.up.sql` before running the bot.
+Apply SQL migrations from `migrations/` before running the bot.
 
 ## Environment Variables
 

@@ -19,6 +19,11 @@ const (
 	StatusDeleted = "deleted"
 )
 
+const (
+	LocaleRU = "ru"
+	LocaleEN = "en"
+)
+
 type Storage interface {
 	Save(ctx context.Context, user User, rawURL string) (*Page, error)
 	PickRandom(ctx context.Context, user User) (*Page, error)
@@ -27,12 +32,15 @@ type Storage interface {
 	List(ctx context.Context, user User, limit int) ([]Page, error)
 	Search(ctx context.Context, user User, query string, limit int) ([]Page, error)
 	Stats(ctx context.Context, user User) (Stats, error)
+	GetLocale(ctx context.Context, user User) (string, error)
+	SetLocale(ctx context.Context, user User, locale string) error
 }
 
 type User struct {
 	TelegramID int64
 	ChatID     int64
 	Username   string
+	Locale     string
 }
 
 type Page struct {
@@ -51,6 +59,15 @@ type Stats struct {
 	Total  int64
 	Unread int64
 	Read   int64
+}
+
+func NormalizeLocale(locale string) string {
+	switch strings.ToLower(strings.TrimSpace(locale)) {
+	case LocaleEN, "en-us", "en-gb":
+		return LocaleEN
+	default:
+		return LocaleRU
+	}
 }
 
 func NormalizeURL(raw string) (string, error) {

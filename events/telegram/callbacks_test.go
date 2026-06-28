@@ -42,9 +42,9 @@ func TestParseCallbackID(t *testing.T) {
 func TestMainMenuKeyboard(t *testing.T) {
 	t.Parallel()
 
-	kb := mainMenuKeyboard()
-	if len(kb.InlineKeyboard) != 4 {
-		t.Fatalf("expected 4 rows, got %d", len(kb.InlineKeyboard))
+	kb := mainMenuKeyboard("ru")
+	if len(kb.InlineKeyboard) != 5 {
+		t.Fatalf("expected 5 rows, got %d", len(kb.InlineKeyboard))
 	}
 	if kb.InlineKeyboard[1][0].CallbackData != cbCmdSave {
 		t.Fatalf("unexpected save callback: %q", kb.InlineKeyboard[1][0].CallbackData)
@@ -52,14 +52,26 @@ func TestMainMenuKeyboard(t *testing.T) {
 	if kb.InlineKeyboard[3][1].CallbackData != cbCmdDelete {
 		t.Fatalf("unexpected delete callback: %q", kb.InlineKeyboard[3][1].CallbackData)
 	}
+	if kb.InlineKeyboard[4][0].CallbackData != cbCmdLang {
+		t.Fatalf("unexpected language callback: %q", kb.InlineKeyboard[4][0].CallbackData)
+	}
+}
+
+func TestEnglishMainMenuKeyboard(t *testing.T) {
+	t.Parallel()
+
+	kb := mainMenuKeyboard("en")
+	if got := kb.InlineKeyboard[0][0].Text; got != "👋 Start" {
+		t.Fatalf("unexpected start button text: %q", got)
+	}
 }
 
 func TestLinkActionKeyboard(t *testing.T) {
 	t.Parallel()
 
-	kb := linkActionKeyboard(15)
-	if len(kb.InlineKeyboard) != 5 {
-		t.Fatalf("expected 5 rows, got %d", len(kb.InlineKeyboard))
+	kb := linkActionKeyboard("ru", 15)
+	if len(kb.InlineKeyboard) != 6 {
+		t.Fatalf("expected 6 rows, got %d", len(kb.InlineKeyboard))
 	}
 	if kb.InlineKeyboard[0][0].CallbackData != "read:15" {
 		t.Fatalf("unexpected read callback: %q", kb.InlineKeyboard[0][0].CallbackData)

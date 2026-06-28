@@ -193,6 +193,14 @@ func (s Storage) Stats(ctx context.Context, user storage.User) (storage.Stats, e
 	return stats, nil
 }
 
+func (s Storage) GetLocale(_ context.Context, user storage.User) (string, error) {
+	return storage.NormalizeLocale(user.Locale), nil
+}
+
+func (s Storage) SetLocale(_ context.Context, _ storage.User, _ string) error {
+	return nil
+}
+
 func (s Storage) isExists(user storage.User, page *storage.Page) (bool, error) {
 	path := filepath.Join(s.basePath, userKey(user), fileName(user, page.NormalizedURL))
 	_, err := os.Stat(path)

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Daniel1212649/LinksHelperBot/lib/e"
+	"github.com/Daniel1212649/LinksHelperBot/storage"
 )
 
 type CallbackMeta struct {
@@ -15,28 +16,32 @@ type CallbackMeta struct {
 	MessageID       int
 	TelegramID      int64
 	Username        string
+	LanguageCode    string
 	Data            string
 }
 
 func (p *Processor) processCallback(ctx context.Context, event CallbackMeta) error {
 	meta := Meta{
-		ChatID:     event.ChatID,
-		TelegramID: event.TelegramID,
-		Username:   event.Username,
+		ChatID:       event.ChatID,
+		TelegramID:   event.TelegramID,
+		Username:     event.Username,
+		LanguageCode: event.LanguageCode,
 	}
+	locale := p.locale(ctx, meta)
+	messages := tr(locale)
 
 	switch event.Data {
 	case cbCmdStart:
 		return p.answerAndSend(ctx, event, func() error {
-			return p.sendHello(ctx, meta.ChatID)
+			return p.sendHello(ctx, meta)
 		})
 	case cbCmdHelp:
 		return p.answerAndSend(ctx, event, func() error {
-			return p.sendHelp(ctx, meta.ChatID)
+			return p.sendHelp(ctx, meta)
 		})
 	case cbCmdSave:
 		return p.answerAndSend(ctx, event, func() error {
-			return p.tg.SendMessage(ctx, meta.ChatID, msgSavePrompt, mainMenuKeyboard())
+			return p.tg.SendMessage(ctx, meta.ChatID, messages.SavePrompt, mainMenuKeyboard(locale))
 		})
 	case cbCmdRnd:
 		if err := p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, ""); err != nil {
@@ -53,12 +58,20 @@ func (p *Processor) processCallback(ctx context.Context, event CallbackMeta) err
 		})
 	case cbCmdSearch:
 		return p.answerAndSend(ctx, event, func() error {
-			return p.tg.SendMessage(ctx, meta.ChatID, msgSearchPrompt, mainMenuKeyboard())
+			return p.tg.SendMessage(ctx, meta.ChatID, messages.SearchPrompt, mainMenuKeyboard(locale))
 		})
 	case cbCmdDelete:
 		return p.answerAndSend(ctx, event, func() error {
-			return p.tg.SendMessage(ctx, meta.ChatID, msgDeletePrompt, mainMenuKeyboard())
+			return p.tg.SendMessage(ctx, meta.ChatID, messages.DeletePrompt, mainMenuKeyboard(locale))
 		})
+	case cbCmdLang:
+		return p.answerAndSend(ctx, event, func() error {
+			return p.tg.SendMessage(ctx, meta.ChatID, messages.ChooseLanguage, languageKeyboard(locale))
+		})
+	case cbLangRU:
+		return p.setLocaleCallback(ctx, event, meta, storage.LocaleRU)
+	case cbLangEN:
+		return p.setLocaleCallback(ctx, event, meta, storage.LocaleEN)
 	default:
 		if strings.HasPrefix(event.Data, "read:") {
 			return p.markReadCallback(ctx, event, meta)
@@ -66,7 +79,7 @@ func (p *Processor) processCallback(ctx context.Context, event CallbackMeta) err
 		if strings.HasPrefix(event.Data, "del:") {
 			return p.deleteCallback(ctx, event, meta)
 		}
-		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, "Unknown action")
+		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.UnknownAction)
 	}
 }
 
@@ -77,17 +90,35 @@ func (p *Processor) answerAndSend(ctx context.Context, event CallbackMeta, actio
 	return action()
 }
 
+func (p *Processor) setLocaleCallback(ctx context.Context, event CallbackMeta, meta Meta, locale string) error {
+	locale = storage.NormalizeLocale(locale)
+	if err := p.storage.SetLocale(ctx, userFromMeta(meta), locale); err != nil {
+		return err
+	}
+	if err := p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, tr(locale).LanguageUpdated); err != nil {
+		return err
+	}
+
+	message := tr(locale).LanguageUpdated
+	if event.MessageID > 0 {
+		return p.tg.EditMessageText(ctx, event.ChatID, event.MessageID, message, mainMenuKeyboard(locale))
+	}
+	return p.tg.SendMessage(ctx, event.ChatID, message, mainMenuKeyboard(locale))
+}
+
 func (p *Processor) markReadCallback(ctx context.Context, event CallbackMeta, meta Meta) error {
+	locale := p.locale(ctx, meta)
+	messages := tr(locale)
 	id, err := parseCallbackID(event.Data, "read:")
 	if err != nil {
-		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, "Invalid link ID")
+		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.InvalidCallbackLinkID)
 	}
 
 	if err := p.storage.MarkRead(ctx, userFromMeta(meta), id); err != nil {
-		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, "Could not mark as read")
+		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.CouldNotMarkRead)
 	}
 
-	if err := p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, "Marked as read"); err != nil {
+	if err := p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.MarkedRead); err != nil {
 		return err
 	}
 
@@ -95,30 +126,32 @@ func (p *Processor) markReadCallback(ctx context.Context, event CallbackMeta, me
 		return nil
 	}
 
-	text := fmt.Sprintf("#%d\n✅ Marked as read.", id)
-	return p.tg.EditMessageText(ctx, event.ChatID, event.MessageID, text, mainMenuKeyboard())
+	text := fmt.Sprintf("#%d\n%s", id, messages.MarkedReadMessage)
+	return p.tg.EditMessageText(ctx, event.ChatID, event.MessageID, text, mainMenuKeyboard(locale))
 }
 
 func (p *Processor) deleteCallback(ctx context.Context, event CallbackMeta, meta Meta) error {
+	locale := p.locale(ctx, meta)
+	messages := tr(locale)
 	id, err := parseCallbackID(event.Data, "del:")
 	if err != nil {
-		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, "Invalid link ID")
+		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.InvalidCallbackLinkID)
 	}
 
 	if err := p.storage.Remove(ctx, userFromMeta(meta), id); err != nil {
-		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, "Could not delete link")
+		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.CouldNotDelete)
 	}
 
-	if err := p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, "Deleted"); err != nil {
+	if err := p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.DeletedCallback); err != nil {
 		return err
 	}
 
 	if event.MessageID == 0 {
-		return p.tg.SendMessage(ctx, event.ChatID, fmt.Sprintf("#%d deleted.", id), mainMenuKeyboard())
+		return p.tg.SendMessage(ctx, event.ChatID, fmt.Sprintf("#%d\n%s", id, messages.DeletedMessage), mainMenuKeyboard(locale))
 	}
 
-	text := fmt.Sprintf("#%d\n🗑 Deleted.", id)
-	return p.tg.EditMessageText(ctx, event.ChatID, event.MessageID, text, mainMenuKeyboard())
+	text := fmt.Sprintf("#%d\n%s", id, messages.DeletedMessage)
+	return p.tg.EditMessageText(ctx, event.ChatID, event.MessageID, text, mainMenuKeyboard(locale))
 }
 
 func parseCallbackID(data string, prefix string) (int64, error) {
