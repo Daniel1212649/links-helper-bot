@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Daniel1212649/LinksHelperBot/lib/e"
-	"github.com/Daniel1212649/LinksHelperBot/storage"
+	"github.com/Daniel1212649/LinksHelperBot/internal/lib/e"
+	"github.com/Daniel1212649/LinksHelperBot/internal/storage"
 )
 
 const defaultPerm = 0774
@@ -31,10 +31,10 @@ func New(basePath string) Storage {
 }
 
 func (s Storage) Save(_ context.Context, user storage.User, rawURL string) (page *storage.Page, err error) {
-	return s.SaveWithDetails(context.Background(), user, rawURL, "", nil)
+	return s.SaveWithDetails(context.Background(), user, rawURL, "", "", "", nil)
 }
 
-func (s Storage) SaveWithDetails(_ context.Context, user storage.User, rawURL string, note string, remindAt *time.Time) (page *storage.Page, err error) {
+func (s Storage) SaveWithDetails(_ context.Context, user storage.User, rawURL string, title string, note string, groupName string, remindAt *time.Time) (page *storage.Page, err error) {
 	defer func() { err = e.WrapIfErr("can't save page", err) }()
 
 	normalizedURL, err := storage.NormalizeURL(rawURL)
@@ -45,7 +45,9 @@ func (s Storage) SaveWithDetails(_ context.Context, user storage.User, rawURL st
 	page = &storage.Page{
 		URL:           normalizedURL,
 		NormalizedURL: normalizedURL,
+		Title:         title,
 		Note:          note,
+		GroupName:     storage.NormalizeGroupName(groupName),
 		Status:        storage.StatusUnread,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
@@ -159,6 +161,28 @@ func (s Storage) List(_ context.Context, user storage.User, limit int) ([]storag
 	return pages, nil
 }
 
+func (s Storage) ListByGroup(ctx context.Context, user storage.User, groupName string, limit int) ([]storage.Page, error) {
+	pages, err := s.List(ctx, user, 1000)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+
+	groupName = storage.NormalizeGroupName(groupName)
+	res := make([]storage.Page, 0)
+	for _, page := range pages {
+		if strings.EqualFold(page.GroupName, groupName) {
+			res = append(res, page)
+		}
+		if len(res) >= limit {
+			break
+		}
+	}
+	return res, nil
+}
+
 func (s Storage) Search(ctx context.Context, user storage.User, query string, limit int) ([]storage.Page, error) {
 	pages, err := s.List(ctx, user, 1000)
 	if err != nil {
@@ -170,7 +194,7 @@ func (s Storage) Search(ctx context.Context, user storage.User, query string, li
 
 	res := make([]storage.Page, 0)
 	for _, page := range pages {
-		if stringsContains(page.URL, query) || stringsContains(page.Title, query) {
+		if stringsContains(page.URL, query) || stringsContains(page.Title, query) || stringsContains(page.Note, query) || stringsContains(page.GroupName, query) {
 			res = append(res, page)
 		}
 		if len(res) >= limit {
@@ -199,6 +223,32 @@ func (s Storage) Stats(ctx context.Context, user storage.User) (storage.Stats, e
 	return stats, nil
 }
 
+func (s Storage) Groups(ctx context.Context, user storage.User) ([]storage.Group, error) {
+	pages, err := s.List(ctx, user, 1000)
+	if err != nil {
+		return nil, err
+	}
+
+	counts := make(map[string]int64)
+	names := make([]string, 0)
+	for _, page := range pages {
+		groupName := storage.NormalizeGroupName(page.GroupName)
+		if groupName == "" {
+			continue
+		}
+		if _, ok := counts[strings.ToLower(groupName)]; !ok {
+			names = append(names, groupName)
+		}
+		counts[strings.ToLower(groupName)]++
+	}
+
+	groups := make([]storage.Group, 0, len(names))
+	for _, name := range names {
+		groups = append(groups, storage.Group{Name: name, Count: counts[strings.ToLower(name)]})
+	}
+	return groups, nil
+}
+
 func (s Storage) SetNote(ctx context.Context, user storage.User, id int64, note string) error {
 	pages, err := s.List(ctx, user, 1000)
 	if err != nil {
@@ -207,6 +257,21 @@ func (s Storage) SetNote(ctx context.Context, user storage.User, id int64, note 
 	for _, page := range pages {
 		if page.ID == id {
 			page.Note = note
+			page.UpdatedAt = time.Now()
+			return s.rewrite(user, &page)
+		}
+	}
+	return nil
+}
+
+func (s Storage) SetGroup(ctx context.Context, user storage.User, id int64, groupName string) error {
+	pages, err := s.List(ctx, user, 1000)
+	if err != nil {
+		return err
+	}
+	for _, page := range pages {
+		if page.ID == id {
+			page.GroupName = storage.NormalizeGroupName(groupName)
 			page.UpdatedAt = time.Now()
 			return s.rewrite(user, &page)
 		}

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Daniel1212649/LinksHelperBot/lib/e"
+	"github.com/Daniel1212649/LinksHelperBot/internal/lib/e"
 )
 
 const (

@@ -3,7 +3,7 @@ package telegram
 import (
 	"fmt"
 
-	"github.com/Daniel1212649/LinksHelperBot/storage"
+	"github.com/Daniel1212649/LinksHelperBot/internal/storage"
 )
 
 type messages struct {
@@ -17,6 +17,7 @@ type messages struct {
 	InvalidURL            string
 	EmptyList             string
 	LatestLinksTitle      string
+	GroupLinksTitleFormat string
 	SearchResultsTitle    string
 	SearchUsage           string
 	SearchPrompt          string
@@ -29,6 +30,11 @@ type messages struct {
 	NoteUsage             string
 	NotePromptFormat      string
 	NoteSaved             string
+	GroupUsage            string
+	GroupPromptFormat     string
+	GroupSaved            string
+	GroupsTitle           string
+	NoGroups              string
 	ReminderUsage         string
 	ReminderPromptFormat  string
 	InvalidReminderDate   string
@@ -68,12 +74,14 @@ var enMessages = messages{
 Commands:
 /save <url> [note] [--remind <date>] - save a link
 /rnd - get a random unread link
-/list - show latest saved links
-/search <text> - search by URL or title
+/list [group] - show latest saved links, optionally by group
+/search <text> - search by URL, title, note or group
 /delete <id> - delete a link by ID
 /stats - show your link stats
 /lang [ru|en] - choose interface language
 /note <id> <text> - add or update a note
+/group <id> <name> - add a link to a group
+/groups - show your groups
 /remind <id> <date> - remind about a link
 /help - show this help
 
@@ -88,6 +96,8 @@ All reminder times use Moscow time (Europe/Moscow).
 
 Save with note and reminder:
 /save https://example.com Useful article --remind 2026-07-01 09:30
+Save into a group:
+/save https://example.com Useful article --group Go
 
 Use the buttons below for quick actions. After /rnd, choose Read, Delete, or Another.`,
 	UnknownCommand:        "Unknown command. Send /help or use the buttons below.",
@@ -98,11 +108,12 @@ Use the buttons below for quick actions. After /rnd, choose Read, Delete, or Ano
 	InvalidURL:            "I can save only valid http/https links.",
 	EmptyList:             "Your list is empty.",
 	LatestLinksTitle:      "Latest links:",
+	GroupLinksTitleFormat: "Links in group %q:",
 	SearchResultsTitle:    "Search results:",
 	SearchUsage:           "Usage: /search <text>",
 	SearchPrompt:          "Send /search <text> or tap 🔍 Search and then type your query.",
 	NothingFound:          "Nothing found.",
-	SavePrompt:            "Send a link or use /save <url> [note] [--remind <date>].",
+	SavePrompt:            "Send a link or use /save <url> [note] [--group <name>] [--remind <date>].",
 	DeleteUsage:           "Usage: /delete <id>",
 	DeletePrompt:          "Send /delete <id> or tap 🗑 on a link in /list.",
 	InvalidLinkID:         "Link ID must be a positive number.",
@@ -110,6 +121,11 @@ Use the buttons below for quick actions. After /rnd, choose Read, Delete, or Ano
 	NoteUsage:             "Usage: /note <id> <text>",
 	NotePromptFormat:      "Send /note %d <text> to add a note.",
 	NoteSaved:             "Note saved.",
+	GroupUsage:            "Usage: /group <id> <name>",
+	GroupPromptFormat:     "Send /group %d <name> to add this link to a group.",
+	GroupSaved:            "Group saved.",
+	GroupsTitle:           "Groups:",
+	NoGroups:              "You do not have any groups yet.",
 	ReminderUsage:         "Usage: /remind <id> <date>. Example: /remind 12 2026-07-01 09:30",
 	ReminderPromptFormat:  "Send /remind %d <date>. Example: /remind %d 2026-07-01 09:30",
 	InvalidReminderDate:   "I understand dates like 2026-07-01 09:30, 2026-07-01, 01.07.2026 09:30, 01.07.2026.",
@@ -132,14 +148,16 @@ var ruMessages = messages{
 	Help: `LinksHelperBot сохраняет ссылки и помогает вернуться к ним позже.
 
 Команды:
-/save <url> [заметка] [--remind <дата>] - сохранить ссылку
+/save <url> [заметка] [--group <группа>] [--remind <дата>] - сохранить ссылку
 /rnd - случайная непрочитанная ссылка
-/list - последние сохранённые ссылки
-/search <text> - поиск по URL или названию
+/list [группа] - последние сохранённые ссылки, можно по группе
+/search <text> - поиск по URL, названию, заметке или группе
 /delete <id> - удалить ссылку по ID
 /stats - статистика ссылок
 /lang [ru|en] - выбрать язык интерфейса
 /note <id> <текст> - добавить или обновить заметку
+/group <id> <группа> - добавить ссылку в группу
+/groups - показать группы
 /remind <id> <дата> - напомнить о ссылке
 /help - показать справку
 
@@ -154,6 +172,8 @@ var ruMessages = messages{
 
 Сохранить сразу с заметкой и напоминанием:
 /save https://example.com Полезная статья --remind 2026-07-01 09:30
+Сохранить в группу:
+/save https://example.com Полезная статья --group Go
 
 Используй кнопки ниже для быстрых действий. После /rnd выбери Прочитано, Удалить или Ещё.`,
 	UnknownCommand:        "Неизвестная команда. Отправь /help или используй кнопки ниже.",
@@ -164,11 +184,12 @@ var ruMessages = messages{
 	InvalidURL:            "Я могу сохранить только корректные http/https ссылки.",
 	EmptyList:             "Твой список пуст.",
 	LatestLinksTitle:      "Последние ссылки:",
+	GroupLinksTitleFormat: "Ссылки в группе %q:",
 	SearchResultsTitle:    "Результаты поиска:",
 	SearchUsage:           "Использование: /search <текст>",
 	SearchPrompt:          "Отправь /search <текст>, чтобы найти ссылку по URL или названию.",
 	NothingFound:          "Ничего не найдено.",
-	SavePrompt:            "Отправь ссылку или используй /save <url> [заметка] [--remind <дата>].",
+	SavePrompt:            "Отправь ссылку или используй /save <url> [заметка] [--group <группа>] [--remind <дата>].",
 	DeleteUsage:           "Использование: /delete <id>",
 	DeletePrompt:          "Отправь /delete <id> или нажми 🗑 рядом со ссылкой в /list.",
 	InvalidLinkID:         "ID ссылки должен быть положительным числом.",
@@ -176,6 +197,11 @@ var ruMessages = messages{
 	NoteUsage:             "Использование: /note <id> <текст>",
 	NotePromptFormat:      "Отправь /note %d <текст>, чтобы добавить заметку.",
 	NoteSaved:             "Заметка сохранена.",
+	GroupUsage:            "Использование: /group <id> <группа>",
+	GroupPromptFormat:     "Отправь /group %d <группа>, чтобы добавить ссылку в группу.",
+	GroupSaved:            "Группа сохранена.",
+	GroupsTitle:           "Группы:",
+	NoGroups:              "У тебя пока нет групп.",
 	ReminderUsage:         "Использование: /remind <id> <дата>. Пример: /remind 12 2026-07-01 09:30",
 	ReminderPromptFormat:  "Отправь /remind %d <дата>. Пример: /remind %d 2026-07-01 09:30",
 	InvalidReminderDate:   "Я понимаю даты вида 2026-07-01 09:30, 2026-07-01, 01.07.2026 09:30, 01.07.2026.",

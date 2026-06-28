@@ -7,11 +7,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Daniel1212649/LinksHelperBot/clients/telegram"
-	"github.com/Daniel1212649/LinksHelperBot/config"
-	eventconsumer "github.com/Daniel1212649/LinksHelperBot/consumer/event-consumer"
-	tgevents "github.com/Daniel1212649/LinksHelperBot/events/telegram"
-	"github.com/Daniel1212649/LinksHelperBot/storage/postgres"
+	"github.com/Daniel1212649/LinksHelperBot/internal/clients/telegram"
+	"github.com/Daniel1212649/LinksHelperBot/internal/config"
+	eventconsumer "github.com/Daniel1212649/LinksHelperBot/internal/consumer/event-consumer"
+	tgevents "github.com/Daniel1212649/LinksHelperBot/internal/events/telegram"
+	"github.com/Daniel1212649/LinksHelperBot/internal/storage/postgres"
 )
 
 func main() {

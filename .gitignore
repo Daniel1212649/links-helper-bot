@@ -65,6 +65,7 @@ secrets/
 *-prompt.md
 *-improvement-prompt.md
 linkshelperbot-prod-improvement-prompt.md
+docs/
 
 # Local runtime data
 storage/data/

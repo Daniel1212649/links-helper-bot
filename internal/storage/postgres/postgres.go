@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/Daniel1212649/LinksHelperBot/storage"
+	"github.com/Daniel1212649/LinksHelperBot/internal/storage"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,10 +34,10 @@ func (s *Storage) Close() {
 }
 
 func (s *Storage) Save(ctx context.Context, user storage.User, rawURL string) (*storage.Page, error) {
-	return s.SaveWithDetails(ctx, user, rawURL, "", nil)
+	return s.SaveWithDetails(ctx, user, rawURL, "", "", "", nil)
 }
 
-func (s *Storage) SaveWithDetails(ctx context.Context, user storage.User, rawURL string, note string, remindAt *time.Time) (*storage.Page, error) {
+func (s *Storage) SaveWithDetails(ctx context.Context, user storage.User, rawURL string, title string, note string, groupName string, remindAt *time.Time) (*storage.Page, error) {
 	normalizedURL, err := storage.NormalizeURL(rawURL)
 	if err != nil {
 		return nil, err
@@ -47,20 +47,33 @@ func (s *Storage) SaveWithDetails(ctx context.Context, user storage.User, rawURL
 	if err != nil {
 		return nil, err
 	}
+	groupName = storage.NormalizeGroupName(groupName)
 
 	const query = `
-		insert into links (user_id, url, normalized_url, note, remind_at, status)
-		values ($1, $2, $3, $4, $5, $6)
-		returning id, url, normalized_url, coalesce(title, ''), coalesce(description, ''), note, status, created_at, updated_at, read_at, remind_at, reminded_at`
+		insert into links (user_id, url, normalized_url, title, note, group_name, remind_at, status)
+		values ($1, $2, $3, nullif($4, ''), $5, $6, $7, $8)
+		on conflict (user_id, normalized_url) do update
+		set url = excluded.url,
+			title = coalesce(excluded.title, links.title),
+			note = excluded.note,
+			group_name = excluded.group_name,
+			remind_at = excluded.remind_at,
+			reminded_at = null,
+			status = excluded.status,
+			read_at = null,
+			updated_at = now()
+		where links.status = $9
+		returning id, url, normalized_url, coalesce(title, ''), coalesce(description, ''), note, group_name, status, created_at, updated_at, read_at, remind_at, reminded_at`
 
 	var page storage.Page
-	err = s.pool.QueryRow(ctx, query, userID, normalizedURL, normalizedURL, note, remindAt, storage.StatusUnread).Scan(
+	err = s.pool.QueryRow(ctx, query, userID, normalizedURL, normalizedURL, title, note, groupName, remindAt, storage.StatusUnread, storage.StatusDeleted).Scan(
 		&page.ID,
 		&page.URL,
 		&page.NormalizedURL,
 		&page.Title,
 		&page.Description,
 		&page.Note,
+		&page.GroupName,
 		&page.Status,
 		&page.CreatedAt,
 		&page.UpdatedAt,
@@ -68,6 +81,9 @@ func (s *Storage) SaveWithDetails(ctx context.Context, user storage.User, rawURL
 		&page.RemindAt,
 		&page.RemindedAt,
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, storage.ErrPageExists
+	}
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
@@ -86,7 +102,7 @@ func (s *Storage) PickRandom(ctx context.Context, user storage.User) (*storage.P
 	}
 
 	const query = `
-		select id, url, normalized_url, coalesce(title, ''), coalesce(description, ''), note, status, created_at, updated_at, read_at, remind_at, reminded_at
+		select id, url, normalized_url, coalesce(title, ''), coalesce(description, ''), note, group_name, status, created_at, updated_at, read_at, remind_at, reminded_at
 		from links
 		where user_id = $1 and status = $2
 		order by random()
@@ -100,6 +116,7 @@ func (s *Storage) PickRandom(ctx context.Context, user storage.User) (*storage.P
 		&page.Title,
 		&page.Description,
 		&page.Note,
+		&page.GroupName,
 		&page.Status,
 		&page.CreatedAt,
 		&page.UpdatedAt,
@@ -156,13 +173,41 @@ func (s *Storage) List(ctx context.Context, user storage.User, limit int) ([]sto
 	}
 
 	const query = `
-		select id, url, normalized_url, coalesce(title, ''), coalesce(description, ''), note, status, created_at, updated_at, read_at, remind_at, reminded_at
+		select id, url, normalized_url, coalesce(title, ''), coalesce(description, ''), note, group_name, status, created_at, updated_at, read_at, remind_at, reminded_at
 		from links
 		where user_id = $1 and status <> $2
 		order by created_at desc
 		limit $3`
 
 	rows, err := s.pool.Query(ctx, query, userID, storage.StatusDeleted, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanPages(rows)
+}
+
+func (s *Storage) ListByGroup(ctx context.Context, user storage.User, groupName string, limit int) ([]storage.Page, error) {
+	userID, err := s.ensureUser(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	groupName = storage.NormalizeGroupName(groupName)
+
+	const query = `
+		select id, url, normalized_url, coalesce(title, ''), coalesce(description, ''), note, group_name, status, created_at, updated_at, read_at, remind_at, reminded_at
+		from links
+		where user_id = $1
+			and status <> $2
+			and lower(group_name) = lower($3)
+		order by created_at desc
+		limit $4`
+
+	rows, err := s.pool.Query(ctx, query, userID, storage.StatusDeleted, groupName, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -181,11 +226,11 @@ func (s *Storage) Search(ctx context.Context, user storage.User, queryText strin
 	}
 
 	const query = `
-		select id, url, normalized_url, coalesce(title, ''), coalesce(description, ''), note, status, created_at, updated_at, read_at, remind_at, reminded_at
+		select id, url, normalized_url, coalesce(title, ''), coalesce(description, ''), note, group_name, status, created_at, updated_at, read_at, remind_at, reminded_at
 		from links
 		where user_id = $1
 			and status <> $2
-			and (url ilike '%' || $3 || '%' or coalesce(title, '') ilike '%' || $3 || '%' or note ilike '%' || $3 || '%')
+			and (url ilike '%' || $3 || '%' or coalesce(title, '') ilike '%' || $3 || '%' or note ilike '%' || $3 || '%' or group_name ilike '%' || $3 || '%')
 		order by created_at desc
 		limit $4`
 
@@ -219,6 +264,41 @@ func (s *Storage) Stats(ctx context.Context, user storage.User) (storage.Stats, 
 		&stats.Read,
 	)
 	return stats, err
+}
+
+func (s *Storage) Groups(ctx context.Context, user storage.User) ([]storage.Group, error) {
+	userID, err := s.ensureUser(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+
+	const query = `
+		select group_name, count(*)
+		from links
+		where user_id = $1
+			and status <> $2
+			and group_name <> ''
+		group by group_name
+		order by lower(group_name)`
+
+	rows, err := s.pool.Query(ctx, query, userID, storage.StatusDeleted)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	groups := make([]storage.Group, 0)
+	for rows.Next() {
+		var group storage.Group
+		if err := rows.Scan(&group.Name, &group.Count); err != nil {
+			return nil, err
+		}
+		groups = append(groups, group)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return groups, nil
 }
 
 func (s *Storage) GetLocale(ctx context.Context, user storage.User) (string, error) {
@@ -266,6 +346,21 @@ func (s *Storage) SetNote(ctx context.Context, user storage.User, id int64, note
 	return err
 }
 
+func (s *Storage) SetGroup(ctx context.Context, user storage.User, id int64, groupName string) error {
+	userID, err := s.ensureUser(ctx, user)
+	if err != nil {
+		return err
+	}
+
+	const query = `
+		update links
+		set group_name = $1, updated_at = now()
+		where id = $2 and user_id = $3 and status <> $4`
+
+	_, err = s.pool.Exec(ctx, query, storage.NormalizeGroupName(groupName), id, userID, storage.StatusDeleted)
+	return err
+}
+
 func (s *Storage) SetReminder(ctx context.Context, user storage.User, id int64, remindAt time.Time) error {
 	userID, err := s.ensureUser(ctx, user)
 	if err != nil {
@@ -288,7 +383,7 @@ func (s *Storage) DueReminders(ctx context.Context, now time.Time, limit int) ([
 
 	const query = `
 		select
-			l.id, l.url, l.normalized_url, coalesce(l.title, ''), coalesce(l.description, ''), l.note,
+			l.id, l.url, l.normalized_url, coalesce(l.title, ''), coalesce(l.description, ''), l.note, l.group_name,
 			l.status, l.created_at, l.updated_at, l.read_at, l.remind_at, l.reminded_at,
 			coalesce(u.telegram_user_id, 0), u.chat_id, coalesce(u.username, ''), u.locale
 		from links l
@@ -316,6 +411,7 @@ func (s *Storage) DueReminders(ctx context.Context, now time.Time, limit int) ([
 			&reminder.Page.Title,
 			&reminder.Page.Description,
 			&reminder.Page.Note,
+			&reminder.Page.GroupName,
 			&reminder.Page.Status,
 			&reminder.Page.CreatedAt,
 			&reminder.Page.UpdatedAt,
@@ -373,6 +469,7 @@ func scanPages(rows pgx.Rows) ([]storage.Page, error) {
 			&page.Title,
 			&page.Description,
 			&page.Note,
+			&page.GroupName,
 			&page.Status,
 			&page.CreatedAt,
 			&page.UpdatedAt,

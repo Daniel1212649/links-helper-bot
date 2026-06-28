@@ -5,8 +5,10 @@ Telegram bot for saving links and returning to them later.
 ## Features
 
 - Save any `http` or `https` link by sending it to the bot.
-- Save explicitly with `/save <url>` and optionally add a note and reminder date.
+- Fetch page titles when saving links.
+- Save explicitly with `/save <url>` and optionally add a note, group and reminder date.
 - Add or update notes with `/note <id> <text>`.
+- Group links by topic with `/group`, `/groups`, `/list <group>` or `--group`.
 - Set date-based reminders with `/remind <id> <date>`.
 - Get a random unread link with `/rnd` or the 🎲 button.
 - List latest links with `/list`.
@@ -23,18 +25,20 @@ Telegram bot for saving links and returning to them later.
 ```text
 /start          👋 greeting and short help
 /help           📖 show all commands
-/save <url> [note] [--remind <date>]  💾 save a link
+/save <url> [note] [--group <name>] [--remind <date>]  💾 save a link
 /rnd            🎲 random unread link (Read / Delete / Another buttons)
-/list           📋 show latest saved links
+/list [group]   📋 show latest saved links, optionally by group
 /stats          📊 show total, unread and read counters
-/search <text>  🔍 search by URL or title
+/search <text>  🔍 search by URL, title, note or group
 /delete <id>    🗑 delete a saved link by ID
 /lang [ru|en]   🌐 choose interface language
 /note <id> <text>      📝 add or update a note
+/group <id> <name>     📁 add or update a link group
+/groups                 📁 show groups
 /remind <id> <date>    ⏰ remind about a link
 ```
 
-Inline buttons: 👋 start, 📖 help, 💾 save, 🎲 random, 📝 note, ⏰ reminder, 📋 list, 📊 stats, 🔍 search, 🗑 delete, 🌐 language. Link messages also include note and reminder prompts with the current link ID.
+Inline buttons: 👋 start, 📖 help, 💾 save, 🎲 random, 📝 note, ⏰ reminder, 📁 groups, 📋 list, 📊 stats, 🔍 search, 🗑 delete, 🌐 language. Link messages also include note, group and reminder prompts with the current link ID.
 
 Reminder date examples:
 
@@ -52,6 +56,15 @@ Save a link with a note and reminder in one message:
 ```text
 /save https://example.com Useful article --remind 2026-07-01 09:30
 https://example.com Useful article --remind 2026-07-01
+```
+
+Save a link into a topic group:
+
+```text
+/save https://go.dev/doc/ Go docs --group Go
+/list Go
+/group 12 Go
+/groups
 ```
 
 ## Local Run With Docker
@@ -124,6 +137,4 @@ See [docs/deploy.md](docs/deploy.md).
 
 ## Roadmap
 
-- Metadata fetching for page titles.
 - Postgres storage integration tests.
-- Move packages to `internal/`.

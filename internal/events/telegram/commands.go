@@ -4,13 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
+	"io"
 	"log"
+	"net/http"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Daniel1212649/LinksHelperBot/lib/e"
-	"github.com/Daniel1212649/LinksHelperBot/storage"
+	"github.com/Daniel1212649/LinksHelperBot/internal/lib/e"
+	"github.com/Daniel1212649/LinksHelperBot/internal/storage"
 )
 
 const (
@@ -25,7 +30,17 @@ const (
 	langCmd   = "/lang"
 	noteCmd   = "/note"
 	remindCmd = "/remind"
+	groupCmd  = "/group"
+	groupsCmd = "/groups"
 )
+
+const (
+	titleFetchTimeout = 5 * time.Second
+	maxTitleBytes     = 1 << 20
+	maxTitleLength    = 200
+)
+
+var titleRegexp = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
 func (p *Processor) doCmd(ctx context.Context, text string, meta Meta) error {
 	text = strings.TrimSpace(text)
@@ -38,12 +53,12 @@ func (p *Processor) doCmd(ctx context.Context, text string, meta Meta) error {
 
 	log.Printf("got new command %q from chat_id=%d username=%q", text, meta.ChatID, meta.Username)
 
-	if pageURL, note, remindAt, ok, err := parseSaveArgs(text, nowInMoscow()); ok {
+	if pageURL, note, groupName, remindAt, ok, err := parseSaveArgs(text, nowInMoscow()); ok {
 		if err != nil {
 			locale := p.locale(ctx, meta)
 			return p.tg.SendMessage(ctx, meta.ChatID, tr(locale).InvalidReminderDate, mainMenuKeyboard(locale))
 		}
-		return p.savePage(ctx, meta, pageURL, note, remindAt)
+		return p.savePage(ctx, meta, pageURL, note, groupName, remindAt)
 	}
 
 	command, argument := splitCommand(text)
@@ -55,17 +70,17 @@ func (p *Processor) doCmd(ctx context.Context, text string, meta Meta) error {
 	case startCmd:
 		return p.sendHello(ctx, meta)
 	case saveCmd:
-		pageURL, note, remindAt, ok, err := parseSaveArgs(argument, nowInMoscow())
+		pageURL, note, groupName, remindAt, ok, err := parseSaveArgs(argument, nowInMoscow())
 		if err != nil {
 			locale := p.locale(ctx, meta)
 			return p.tg.SendMessage(ctx, meta.ChatID, tr(locale).InvalidReminderDate, mainMenuKeyboard(locale))
 		}
 		if !ok {
-			return p.savePage(ctx, meta, "", "", nil)
+			return p.savePage(ctx, meta, "", "", "", nil)
 		}
-		return p.savePage(ctx, meta, pageURL, note, remindAt)
+		return p.savePage(ctx, meta, pageURL, note, groupName, remindAt)
 	case listCmd:
-		return p.sendList(ctx, meta)
+		return p.sendList(ctx, meta, argument)
 	case searchCmd:
 		return p.search(ctx, meta, argument)
 	case deleteCmd:
@@ -78,13 +93,17 @@ func (p *Processor) doCmd(ctx context.Context, text string, meta Meta) error {
 		return p.setNote(ctx, meta, argument)
 	case remindCmd:
 		return p.setReminder(ctx, meta, argument)
+	case groupCmd:
+		return p.setGroup(ctx, meta, argument)
+	case groupsCmd:
+		return p.sendGroups(ctx, meta)
 	default:
 		locale := p.locale(ctx, meta)
 		return p.tg.SendMessage(ctx, meta.ChatID, tr(locale).UnknownCommand, mainMenuKeyboard(locale))
 	}
 }
 
-func (p *Processor) savePage(ctx context.Context, meta Meta, pageURL string, note string, remindAt *time.Time) (err error) {
+func (p *Processor) savePage(ctx context.Context, meta Meta, pageURL string, note string, groupName string, remindAt *time.Time) (err error) {
 	defer func() { err = e.WrapIfErr("can't save page", err) }()
 
 	locale := p.locale(ctx, meta)
@@ -93,7 +112,17 @@ func (p *Processor) savePage(ctx context.Context, meta Meta, pageURL string, not
 		return p.tg.SendMessage(ctx, meta.ChatID, messages.InvalidURL, mainMenuKeyboard(locale))
 	}
 
-	_, err = p.storage.SaveWithDetails(ctx, userFromMeta(meta), pageURL, strings.TrimSpace(note), remindAt)
+	title := ""
+	normalizedURL, err := storage.NormalizeURL(pageURL)
+	if err == nil {
+		title, err = fetchPageTitle(ctx, normalizedURL)
+		if err != nil {
+			log.Printf("can't fetch page title for %q: %v", normalizedURL, err)
+			title = ""
+		}
+	}
+
+	_, err = p.storage.SaveWithDetails(ctx, userFromMeta(meta), pageURL, title, strings.TrimSpace(note), groupName, remindAt)
 	if errors.Is(err, storage.ErrPageExists) {
 		return p.tg.SendMessage(ctx, meta.ChatID, messages.AlreadyExists, mainMenuKeyboard(locale))
 	}
@@ -130,10 +159,22 @@ func (p *Processor) sendRandomPage(ctx context.Context, meta Meta, editMessageID
 	return p.tg.SendMessage(ctx, meta.ChatID, text, markup)
 }
 
-func (p *Processor) sendList(ctx context.Context, meta Meta) error {
+func (p *Processor) sendList(ctx context.Context, meta Meta, groupName string) error {
 	locale := p.locale(ctx, meta)
 	messages := tr(locale)
-	pages, err := p.storage.List(ctx, userFromMeta(meta), 10)
+	groupName = storage.NormalizeGroupName(groupName)
+
+	var (
+		pages []storage.Page
+		err   error
+		title = messages.LatestLinksTitle
+	)
+	if groupName == "" {
+		pages, err = p.storage.List(ctx, userFromMeta(meta), 10)
+	} else {
+		pages, err = p.storage.ListByGroup(ctx, userFromMeta(meta), groupName, 10)
+		title = fmt.Sprintf(messages.GroupLinksTitleFormat, groupName)
+	}
 	if err != nil {
 		return e.Wrap("can't list pages", err)
 	}
@@ -141,7 +182,7 @@ func (p *Processor) sendList(ctx context.Context, meta Meta) error {
 		return p.tg.SendMessage(ctx, meta.ChatID, messages.EmptyList, mainMenuKeyboard(locale))
 	}
 
-	return p.tg.SendMessage(ctx, meta.ChatID, formatPages(messages.LatestLinksTitle, pages), listActionKeyboard(locale, pages))
+	return p.tg.SendMessage(ctx, meta.ChatID, formatPages(title, pages), listActionKeyboard(locale, pages))
 }
 
 func (p *Processor) search(ctx context.Context, meta Meta, query string) error {
@@ -220,6 +261,37 @@ func (p *Processor) setReminder(ctx context.Context, meta Meta, argument string)
 	return p.tg.SendMessage(ctx, meta.ChatID, fmt.Sprintf(messages.ReminderSavedFormat, formatReminderTime(remindAt)), mainMenuKeyboard(locale))
 }
 
+func (p *Processor) setGroup(ctx context.Context, meta Meta, argument string) error {
+	locale := p.locale(ctx, meta)
+	messages := tr(locale)
+
+	id, groupName, ok := splitIDAndText(argument)
+	if !ok {
+		return p.tg.SendMessage(ctx, meta.ChatID, messages.GroupUsage, mainMenuKeyboard(locale))
+	}
+
+	if err := p.storage.SetGroup(ctx, userFromMeta(meta), id, storage.NormalizeGroupName(groupName)); err != nil {
+		return e.Wrap("can't set group", err)
+	}
+
+	return p.tg.SendMessage(ctx, meta.ChatID, messages.GroupSaved, mainMenuKeyboard(locale))
+}
+
+func (p *Processor) sendGroups(ctx context.Context, meta Meta) error {
+	locale := p.locale(ctx, meta)
+	messages := tr(locale)
+
+	groups, err := p.storage.Groups(ctx, userFromMeta(meta))
+	if err != nil {
+		return e.Wrap("can't list groups", err)
+	}
+	if len(groups) == 0 {
+		return p.tg.SendMessage(ctx, meta.ChatID, messages.NoGroups, mainMenuKeyboard(locale))
+	}
+
+	return p.tg.SendMessage(ctx, meta.ChatID, formatGroups(messages.GroupsTitle, groups), mainMenuKeyboard(locale))
+}
+
 func (p *Processor) sendStats(ctx context.Context, meta Meta) error {
 	locale := p.locale(ctx, meta)
 	stats, err := p.storage.Stats(ctx, userFromMeta(meta))
@@ -284,39 +356,92 @@ func splitURLAndNote(text string) (string, string) {
 	return parts[0], strings.TrimSpace(parts[1])
 }
 
-func parseSaveArgs(text string, now time.Time) (string, string, *time.Time, bool, error) {
+func parseSaveArgs(text string, now time.Time) (string, string, string, *time.Time, bool, error) {
 	pageURL, note := splitURLAndNote(text)
 	if !isURL(pageURL) {
-		return "", "", nil, false, nil
+		return "", "", "", nil, false, nil
 	}
 
-	note, rawReminder := splitReminderOption(note)
+	note, groupName, rawReminder := splitSaveOptions(note)
 	if rawReminder == "" {
-		return pageURL, note, nil, true, nil
+		return pageURL, note, groupName, nil, true, nil
 	}
 
 	remindAt, err := parseReminderTime(rawReminder, now)
 	if err != nil {
-		return "", "", nil, true, err
+		return "", "", "", nil, true, err
 	}
-	return pageURL, note, &remindAt, true, nil
+	return pageURL, note, groupName, &remindAt, true, nil
 }
 
-func splitReminderOption(text string) (string, string) {
+func splitSaveOptions(text string) (string, string, string) {
 	text = strings.TrimSpace(text)
-	const marker = "--remind"
-	if strings.HasPrefix(text, marker+" ") {
-		return "", strings.TrimSpace(strings.TrimPrefix(text, marker))
+	markers := findSaveOptionMarkers(text)
+	if len(markers) == 0 {
+		return text, "", ""
 	}
 
-	index := strings.LastIndex(text, " "+marker+" ")
-	if index == -1 {
-		return text, ""
+	note := strings.TrimSpace(text[:markers[0].start])
+	groupName := ""
+	reminder := ""
+	for i, marker := range markers {
+		valueStart := marker.start + marker.length
+		if valueStart < len(text) && text[valueStart] == ' ' {
+			valueStart++
+		}
+		valueEnd := len(text)
+		if i+1 < len(markers) {
+			valueEnd = markers[i+1].start
+		}
+		value := strings.TrimSpace(text[valueStart:valueEnd])
+		switch marker.name {
+		case "group":
+			groupName = value
+		case "remind":
+			reminder = value
+		}
+	}
+	return note, storage.NormalizeGroupName(groupName), reminder
+}
+
+type saveOptionMarker struct {
+	name   string
+	start  int
+	length int
+}
+
+func findSaveOptionMarkers(text string) []saveOptionMarker {
+	options := map[string]string{
+		"--group":  "group",
+		"—group":   "group",
+		"–group":   "group",
+		"--remind": "remind",
+		"—remind":  "remind",
+		"–remind":  "remind",
 	}
 
-	note := strings.TrimSpace(text[:index])
-	reminder := strings.TrimSpace(text[index+len(" "+marker+" "):])
-	return note, reminder
+	markers := make([]saveOptionMarker, 0)
+	for marker, name := range options {
+		searchFrom := 0
+		for {
+			index := strings.Index(text[searchFrom:], marker)
+			if index == -1 {
+				break
+			}
+			index += searchFrom
+			beforeOK := index == 0 || text[index-1] == ' '
+			afterIndex := index + len(marker)
+			afterOK := afterIndex == len(text) || text[afterIndex] == ' '
+			if beforeOK && afterOK {
+				markers = append(markers, saveOptionMarker{name: name, start: index, length: len(marker)})
+			}
+			searchFrom = index + len(marker)
+		}
+	}
+	sort.Slice(markers, func(i, j int) bool {
+		return markers[i].start < markers[j].start
+	})
+	return markers
 }
 
 func splitIDAndText(text string) (int64, string, bool) {
@@ -384,9 +509,24 @@ func formatPages(title string, pages []storage.Page) string {
 	return builder.String()
 }
 
+func formatGroups(title string, groups []storage.Group) string {
+	var builder strings.Builder
+	builder.WriteString(title)
+	for _, group := range groups {
+		builder.WriteString(fmt.Sprintf("\n📁 %s — %d", group.Name, group.Count))
+	}
+	return builder.String()
+}
+
 func formatPage(page *storage.Page) string {
 	var builder strings.Builder
 	builder.WriteString(fmt.Sprintf("#%d [%s]\n%s", page.ID, page.Status, page.URL))
+	if strings.TrimSpace(page.Title) != "" {
+		builder.WriteString(fmt.Sprintf("\n%s", page.Title))
+	}
+	if strings.TrimSpace(page.GroupName) != "" {
+		builder.WriteString(fmt.Sprintf("\n📁 %s", page.GroupName))
+	}
 	if strings.TrimSpace(page.Note) != "" {
 		builder.WriteString(fmt.Sprintf("\n📝 %s", page.Note))
 	}
@@ -394,4 +534,46 @@ func formatPage(page *storage.Page) string {
 		builder.WriteString(fmt.Sprintf("\n⏰ %s", formatReminderTime(*page.RemindAt)))
 	}
 	return builder.String()
+}
+
+func fetchPageTitle(ctx context.Context, pageURL string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, titleFetchTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.Header.Set("User-Agent", "LinksHelperBot/1.0")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("page returned HTTP %d", resp.StatusCode)
+	}
+	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
+	if contentType != "" && !strings.Contains(contentType, "text/html") && !strings.Contains(contentType, "application/xhtml+xml") {
+		return "", nil
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTitleBytes))
+	if err != nil {
+		return "", err
+	}
+	matches := titleRegexp.FindSubmatch(body)
+	if len(matches) < 2 {
+		return "", nil
+	}
+
+	title := html.UnescapeString(string(matches[1]))
+	title = strings.Join(strings.Fields(title), " ")
+	if len([]rune(title)) > maxTitleLength {
+		title = string([]rune(title)[:maxTitleLength])
+	}
+	return title, nil
 }

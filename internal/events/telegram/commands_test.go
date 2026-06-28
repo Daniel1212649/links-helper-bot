@@ -1,6 +1,9 @@
 package telegram
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -15,6 +18,7 @@ func TestParseSaveArgs(t *testing.T) {
 		in          string
 		wantURL     string
 		wantNote    string
+		wantGroup   string
 		wantRemind  string
 		wantMatched bool
 		wantErr     bool
@@ -33,8 +37,42 @@ func TestParseSaveArgs(t *testing.T) {
 			wantMatched: true,
 		},
 		{
+			name:        "url with group",
+			in:          "https://example.com useful article --group Go",
+			wantURL:     "https://example.com",
+			wantNote:    "useful article",
+			wantGroup:   "Go",
+			wantMatched: true,
+		},
+		{
+			name:        "url with group and reminder",
+			in:          "https://example.com useful article --group Go --remind 2026-07-01 09:30",
+			wantURL:     "https://example.com",
+			wantNote:    "useful article",
+			wantGroup:   "Go",
+			wantRemind:  "2026-07-01 09:30",
+			wantMatched: true,
+		},
+		{
+			name:        "url with reminder before group",
+			in:          "https://example.com useful article --remind 2026-07-01 09:30 --group Go",
+			wantURL:     "https://example.com",
+			wantNote:    "useful article",
+			wantGroup:   "Go",
+			wantRemind:  "2026-07-01 09:30",
+			wantMatched: true,
+		},
+		{
 			name:        "url with note and reminder",
 			in:          "https://example.com useful article --remind 2026-07-01 09:30",
+			wantURL:     "https://example.com",
+			wantNote:    "useful article",
+			wantRemind:  "2026-07-01 09:30",
+			wantMatched: true,
+		},
+		{
+			name:        "url with em dash reminder marker",
+			in:          "https://example.com useful article —remind 2026-07-01 09:30",
 			wantURL:     "https://example.com",
 			wantNote:    "useful article",
 			wantRemind:  "2026-07-01 09:30",
@@ -63,7 +101,7 @@ func TestParseSaveArgs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotURL, gotNote, gotRemind, gotMatched, err := parseSaveArgs(tt.in, now)
+			gotURL, gotNote, gotGroup, gotRemind, gotMatched, err := parseSaveArgs(tt.in, now)
 			if gotMatched != tt.wantMatched {
 				t.Fatalf("matched = %v, want %v", gotMatched, tt.wantMatched)
 			}
@@ -82,6 +120,9 @@ func TestParseSaveArgs(t *testing.T) {
 			if gotNote != tt.wantNote {
 				t.Fatalf("note = %q, want %q", gotNote, tt.wantNote)
 			}
+			if gotGroup != tt.wantGroup {
+				t.Fatalf("group = %q, want %q", gotGroup, tt.wantGroup)
+			}
 			if gotRemind == nil && tt.wantRemind != "" {
 				t.Fatalf("expected reminder %q", tt.wantRemind)
 			}
@@ -89,6 +130,24 @@ func TestParseSaveArgs(t *testing.T) {
 				t.Fatalf("reminder = %q, want %q", formatReminderTime(*gotRemind), tt.wantRemind)
 			}
 		})
+	}
+}
+
+func TestFetchPageTitle(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><head><title> Go downloads &amp; releases </title></head><body></body></html>`))
+	}))
+	defer server.Close()
+
+	got, err := fetchPageTitle(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("fetchPageTitle returned error: %v", err)
+	}
+	if got != "Go downloads & releases" {
+		t.Fatalf("title = %q, want %q", got, "Go downloads & releases")
 	}
 }
 

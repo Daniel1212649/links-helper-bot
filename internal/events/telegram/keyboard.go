@@ -3,8 +3,8 @@ package telegram
 import (
 	"fmt"
 
-	tgclient "github.com/Daniel1212649/LinksHelperBot/clients/telegram"
-	"github.com/Daniel1212649/LinksHelperBot/storage"
+	tgclient "github.com/Daniel1212649/LinksHelperBot/internal/clients/telegram"
+	"github.com/Daniel1212649/LinksHelperBot/internal/storage"
 )
 
 const (
@@ -18,6 +18,7 @@ const (
 	cbCmdDelete = "cmd:delete"
 	cbCmdNote   = "cmd:note"
 	cbCmdRemind = "cmd:remind"
+	cbCmdGroups = "cmd:groups"
 	cbCmdLang   = "cmd:lang"
 	cbLangRU    = "lang:ru"
 	cbLangEN    = "lang:en"
@@ -37,6 +38,10 @@ func cbNote(id int64) string {
 
 func cbRemind(id int64) string {
 	return fmt.Sprintf("remind:%d", id)
+}
+
+func cbGroup(id int64) string {
+	return fmt.Sprintf("group:%d", id)
 }
 
 func mainMenuKeyboard(locale string) *tgclient.InlineKeyboardMarkup {
@@ -72,6 +77,9 @@ func mainMenuRows(locale string) [][]tgclient.InlineKeyboardButton {
 				{Text: "⏰ Reminder", CallbackData: cbCmdRemind},
 			},
 			{
+				{Text: "📁 Groups", CallbackData: cbCmdGroups},
+			},
+			{
 				{Text: "📋 List", CallbackData: cbCmdList},
 				{Text: "📊 Stats", CallbackData: cbCmdStats},
 			},
@@ -99,6 +107,9 @@ func mainMenuRows(locale string) [][]tgclient.InlineKeyboardButton {
 			{Text: "⏰ Напомнить", CallbackData: cbCmdRemind},
 		},
 		{
+			{Text: "📁 Группы", CallbackData: cbCmdGroups},
+		},
+		{
 			{Text: "📋 Список", CallbackData: cbCmdList},
 			{Text: "📊 Статистика", CallbackData: cbCmdStats},
 		},
@@ -122,6 +133,7 @@ func linkActionKeyboard(locale string, pageID int64) *tgclient.InlineKeyboardMar
 	detailsRow := []tgclient.InlineKeyboardButton{
 		{Text: "📝 Заметка", CallbackData: cbNote(pageID)},
 		{Text: "⏰ Напомнить", CallbackData: cbRemind(pageID)},
+		{Text: "📁 Группа", CallbackData: cbGroup(pageID)},
 	}
 	if storage.NormalizeLocale(locale) == storage.LocaleEN {
 		actionRow = []tgclient.InlineKeyboardButton{
@@ -132,6 +144,7 @@ func linkActionKeyboard(locale string, pageID int64) *tgclient.InlineKeyboardMar
 		detailsRow = []tgclient.InlineKeyboardButton{
 			{Text: "📝 Note", CallbackData: cbNote(pageID)},
 			{Text: "⏰ Remind", CallbackData: cbRemind(pageID)},
+			{Text: "📁 Group", CallbackData: cbGroup(pageID)},
 		}
 	}
 

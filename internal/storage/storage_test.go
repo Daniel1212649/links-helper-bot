@@ -43,3 +43,9 @@ func TestNormalizeURLRejectsUnsupportedScheme(t *testing.T) {
 		t.Fatal("expected unsupported scheme error")
 	}
 }
+
+func TestNormalizeGroupName(t *testing.T) {
+	if got := NormalizeGroupName("  Go articles  "); got != "Go articles" {
+		t.Fatalf("NormalizeGroupName() = %q, want %q", got, "Go articles")
+	}
+}

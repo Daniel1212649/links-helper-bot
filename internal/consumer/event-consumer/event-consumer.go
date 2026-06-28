@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/Daniel1212649/LinksHelperBot/events"
+	"github.com/Daniel1212649/LinksHelperBot/internal/events"
 )
 
 type Consumer struct {

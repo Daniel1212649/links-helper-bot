@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	tgclient "github.com/Daniel1212649/LinksHelperBot/clients/telegram"
-	"github.com/Daniel1212649/LinksHelperBot/storage"
+	tgclient "github.com/Daniel1212649/LinksHelperBot/internal/clients/telegram"
+	"github.com/Daniel1212649/LinksHelperBot/internal/storage"
 )
 
 func StartReminderScheduler(ctx context.Context, client *tgclient.Client, store storage.Storage, interval time.Duration) {

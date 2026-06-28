@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Daniel1212649/LinksHelperBot/lib/e"
-	"github.com/Daniel1212649/LinksHelperBot/storage"
+	"github.com/Daniel1212649/LinksHelperBot/internal/lib/e"
+	"github.com/Daniel1212649/LinksHelperBot/internal/storage"
 )
 
 type CallbackMeta struct {
@@ -50,7 +50,7 @@ func (p *Processor) processCallback(ctx context.Context, event CallbackMeta) err
 		return p.sendRandomPage(ctx, meta, event.MessageID)
 	case cbCmdList:
 		return p.answerAndSend(ctx, event, func() error {
-			return p.sendList(ctx, meta)
+			return p.sendList(ctx, meta, "")
 		})
 	case cbCmdStats:
 		return p.answerAndSend(ctx, event, func() error {
@@ -72,6 +72,10 @@ func (p *Processor) processCallback(ctx context.Context, event CallbackMeta) err
 		return p.answerAndSend(ctx, event, func() error {
 			return p.tg.SendMessage(ctx, meta.ChatID, messages.ReminderUsage, mainMenuKeyboard(locale))
 		})
+	case cbCmdGroups:
+		return p.answerAndSend(ctx, event, func() error {
+			return p.sendGroups(ctx, meta)
+		})
 	case cbCmdLang:
 		return p.answerAndSend(ctx, event, func() error {
 			return p.tg.SendMessage(ctx, meta.ChatID, messages.ChooseLanguage, languageKeyboard(locale))
@@ -92,6 +96,9 @@ func (p *Processor) processCallback(ctx context.Context, event CallbackMeta) err
 		}
 		if strings.HasPrefix(event.Data, "remind:") {
 			return p.reminderPromptCallback(ctx, event, meta)
+		}
+		if strings.HasPrefix(event.Data, "group:") {
+			return p.groupPromptCallback(ctx, event, meta)
 		}
 		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.UnknownAction)
 	}
@@ -192,6 +199,19 @@ func (p *Processor) reminderPromptCallback(ctx context.Context, event CallbackMe
 		return err
 	}
 	return p.tg.SendMessage(ctx, event.ChatID, fmt.Sprintf(messages.ReminderPromptFormat, id, id), mainMenuKeyboard(locale))
+}
+
+func (p *Processor) groupPromptCallback(ctx context.Context, event CallbackMeta, meta Meta) error {
+	locale := p.locale(ctx, meta)
+	messages := tr(locale)
+	id, err := parseCallbackID(event.Data, "group:")
+	if err != nil {
+		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.InvalidCallbackLinkID)
+	}
+	if err := p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, ""); err != nil {
+		return err
+	}
+	return p.tg.SendMessage(ctx, event.ChatID, fmt.Sprintf(messages.GroupPromptFormat, id), mainMenuKeyboard(locale))
 }
 
 func parseCallbackID(data string, prefix string) (int64, error) {
