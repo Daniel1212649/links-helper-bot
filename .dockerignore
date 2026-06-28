@@ -33,12 +33,22 @@ coverage.out
 *_backup.sql
 backup
 backups
+postgres_data
+pgdata
+data/postgres
+
+.migrate
+schema.sql
 
 *.pem
 *.key
 *.p12
 credentials.json
 secrets
+
+*-prompt.md
+*-improvement-prompt.md
+linkshelperbot-prod-improvement-prompt.md
 
 storage/data
 tmp

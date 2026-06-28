@@ -5,6 +5,7 @@ import (
 	"log"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Daniel1212649/LinksHelperBot/clients/telegram"
 	"github.com/Daniel1212649/LinksHelperBot/config"
@@ -31,6 +32,7 @@ func main() {
 	tgClient := telegram.New(cfg.TelegramAPIHost, cfg.TelegramBotToken, cfg.HTTPTimeout)
 	eventsProcessor := tgevents.New(tgClient, db)
 	consumer := eventconsumer.New(eventsProcessor, eventsProcessor, cfg.PollBatchSize, cfg.PollInterval)
+	tgevents.StartReminderScheduler(ctx, tgClient, db, time.Minute)
 
 	log.Printf("service started env=%s", cfg.AppEnv)
 

@@ -64,6 +64,14 @@ func (p *Processor) processCallback(ctx context.Context, event CallbackMeta) err
 		return p.answerAndSend(ctx, event, func() error {
 			return p.tg.SendMessage(ctx, meta.ChatID, messages.DeletePrompt, mainMenuKeyboard(locale))
 		})
+	case cbCmdNote:
+		return p.answerAndSend(ctx, event, func() error {
+			return p.tg.SendMessage(ctx, meta.ChatID, messages.NoteUsage, mainMenuKeyboard(locale))
+		})
+	case cbCmdRemind:
+		return p.answerAndSend(ctx, event, func() error {
+			return p.tg.SendMessage(ctx, meta.ChatID, messages.ReminderUsage, mainMenuKeyboard(locale))
+		})
 	case cbCmdLang:
 		return p.answerAndSend(ctx, event, func() error {
 			return p.tg.SendMessage(ctx, meta.ChatID, messages.ChooseLanguage, languageKeyboard(locale))
@@ -78,6 +86,12 @@ func (p *Processor) processCallback(ctx context.Context, event CallbackMeta) err
 		}
 		if strings.HasPrefix(event.Data, "del:") {
 			return p.deleteCallback(ctx, event, meta)
+		}
+		if strings.HasPrefix(event.Data, "note:") {
+			return p.notePromptCallback(ctx, event, meta)
+		}
+		if strings.HasPrefix(event.Data, "remind:") {
+			return p.reminderPromptCallback(ctx, event, meta)
 		}
 		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.UnknownAction)
 	}
@@ -152,6 +166,32 @@ func (p *Processor) deleteCallback(ctx context.Context, event CallbackMeta, meta
 
 	text := fmt.Sprintf("#%d\n%s", id, messages.DeletedMessage)
 	return p.tg.EditMessageText(ctx, event.ChatID, event.MessageID, text, mainMenuKeyboard(locale))
+}
+
+func (p *Processor) notePromptCallback(ctx context.Context, event CallbackMeta, meta Meta) error {
+	locale := p.locale(ctx, meta)
+	messages := tr(locale)
+	id, err := parseCallbackID(event.Data, "note:")
+	if err != nil {
+		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.InvalidCallbackLinkID)
+	}
+	if err := p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, ""); err != nil {
+		return err
+	}
+	return p.tg.SendMessage(ctx, event.ChatID, fmt.Sprintf(messages.NotePromptFormat, id), mainMenuKeyboard(locale))
+}
+
+func (p *Processor) reminderPromptCallback(ctx context.Context, event CallbackMeta, meta Meta) error {
+	locale := p.locale(ctx, meta)
+	messages := tr(locale)
+	id, err := parseCallbackID(event.Data, "remind:")
+	if err != nil {
+		return p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, messages.InvalidCallbackLinkID)
+	}
+	if err := p.tg.AnswerCallbackQuery(ctx, event.CallbackQueryID, ""); err != nil {
+		return err
+	}
+	return p.tg.SendMessage(ctx, event.ChatID, fmt.Sprintf(messages.ReminderPromptFormat, id, id), mainMenuKeyboard(locale))
 }
 
 func parseCallbackID(data string, prefix string) (int64, error) {

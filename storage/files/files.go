@@ -31,6 +31,10 @@ func New(basePath string) Storage {
 }
 
 func (s Storage) Save(_ context.Context, user storage.User, rawURL string) (page *storage.Page, err error) {
+	return s.SaveWithDetails(context.Background(), user, rawURL, "", nil)
+}
+
+func (s Storage) SaveWithDetails(_ context.Context, user storage.User, rawURL string, note string, remindAt *time.Time) (page *storage.Page, err error) {
 	defer func() { err = e.WrapIfErr("can't save page", err) }()
 
 	normalizedURL, err := storage.NormalizeURL(rawURL)
@@ -41,9 +45,11 @@ func (s Storage) Save(_ context.Context, user storage.User, rawURL string) (page
 	page = &storage.Page{
 		URL:           normalizedURL,
 		NormalizedURL: normalizedURL,
+		Note:          note,
 		Status:        storage.StatusUnread,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
+		RemindAt:      remindAt,
 	}
 
 	if exists, err := s.isExists(user, page); err != nil {
@@ -191,6 +197,45 @@ func (s Storage) Stats(ctx context.Context, user storage.User) (storage.Stats, e
 	}
 
 	return stats, nil
+}
+
+func (s Storage) SetNote(ctx context.Context, user storage.User, id int64, note string) error {
+	pages, err := s.List(ctx, user, 1000)
+	if err != nil {
+		return err
+	}
+	for _, page := range pages {
+		if page.ID == id {
+			page.Note = note
+			page.UpdatedAt = time.Now()
+			return s.rewrite(user, &page)
+		}
+	}
+	return nil
+}
+
+func (s Storage) SetReminder(ctx context.Context, user storage.User, id int64, remindAt time.Time) error {
+	pages, err := s.List(ctx, user, 1000)
+	if err != nil {
+		return err
+	}
+	for _, page := range pages {
+		if page.ID == id {
+			page.RemindAt = &remindAt
+			page.RemindedAt = nil
+			page.UpdatedAt = time.Now()
+			return s.rewrite(user, &page)
+		}
+	}
+	return nil
+}
+
+func (s Storage) DueReminders(context.Context, time.Time, int) ([]storage.Reminder, error) {
+	return nil, nil
+}
+
+func (s Storage) MarkReminded(context.Context, int64) error {
+	return nil
 }
 
 func (s Storage) GetLocale(_ context.Context, user storage.User) (string, error) {

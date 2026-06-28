@@ -34,13 +34,25 @@ coverage.out
 *.prof
 *.pprof
 
-# Logs and database dumps
+# Logs
 *.log
+
+# Database dumps and local DB data (schema migrations in migrations/ stay tracked)
+*.sql
+!migrations/
+!migrations/**
 *.dump
 *.sql.gz
 *_backup.sql
 backup/
 backups/
+postgres_data/
+pgdata/
+data/postgres/
+
+# Migrate tool artifacts
+.migrate/
+schema.sql
 
 # Credentials (just in case)
 *.pem
@@ -48,6 +60,11 @@ backups/
 *.p12
 credentials.json
 secrets/
+
+# Internal dev docs (not for public repo)
+*-prompt.md
+*-improvement-prompt.md
+linkshelperbot-prod-improvement-prompt.md
 
 # Local runtime data
 storage/data/

@@ -5,7 +5,9 @@ Telegram bot for saving links and returning to them later.
 ## Features
 
 - Save any `http` or `https` link by sending it to the bot.
-- Save explicitly with `/save <url>`.
+- Save explicitly with `/save <url>` and optionally add a note and reminder date.
+- Add or update notes with `/note <id> <text>`.
+- Set date-based reminders with `/remind <id> <date>`.
 - Get a random unread link with `/rnd` or the 🎲 button.
 - List latest links with `/list`.
 - Search saved links with `/search <text>`.
@@ -21,16 +23,36 @@ Telegram bot for saving links and returning to them later.
 ```text
 /start          👋 greeting and short help
 /help           📖 show all commands
-/save <url>     💾 save a link
+/save <url> [note] [--remind <date>]  💾 save a link
 /rnd            🎲 random unread link (Read / Delete / Another buttons)
 /list           📋 show latest saved links
 /stats          📊 show total, unread and read counters
 /search <text>  🔍 search by URL or title
 /delete <id>    🗑 delete a saved link by ID
 /lang [ru|en]   🌐 choose interface language
+/note <id> <text>      📝 add or update a note
+/remind <id> <date>    ⏰ remind about a link
 ```
 
-Inline buttons: 👋 start, 📖 help, 💾 save, 🎲 random, 📋 list, 📊 stats, 🔍 search, 🗑 delete, 🌐 language.
+Inline buttons: 👋 start, 📖 help, 💾 save, 🎲 random, 📝 note, ⏰ reminder, 📋 list, 📊 stats, 🔍 search, 🗑 delete, 🌐 language. Link messages also include note and reminder prompts with the current link ID.
+
+Reminder date examples:
+
+```text
+/remind 12 2026-07-01 09:30
+/remind 12 2026-07-01
+/remind 12 01.07.2026 09:30
+/remind 12 01.07.2026
+```
+
+Reminder dates are always interpreted as Moscow time (`Europe/Moscow`), independent of the server timezone.
+
+Save a link with a note and reminder in one message:
+
+```text
+/save https://example.com Useful article --remind 2026-07-01 09:30
+https://example.com Useful article --remind 2026-07-01
+```
 
 ## Local Run With Docker
 

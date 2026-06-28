@@ -26,6 +26,7 @@ const (
 
 type Storage interface {
 	Save(ctx context.Context, user User, rawURL string) (*Page, error)
+	SaveWithDetails(ctx context.Context, user User, rawURL string, note string, remindAt *time.Time) (*Page, error)
 	PickRandom(ctx context.Context, user User) (*Page, error)
 	MarkRead(ctx context.Context, user User, id int64) error
 	Remove(ctx context.Context, user User, id int64) error
@@ -34,6 +35,10 @@ type Storage interface {
 	Stats(ctx context.Context, user User) (Stats, error)
 	GetLocale(ctx context.Context, user User) (string, error)
 	SetLocale(ctx context.Context, user User, locale string) error
+	SetNote(ctx context.Context, user User, id int64, note string) error
+	SetReminder(ctx context.Context, user User, id int64, remindAt time.Time) error
+	DueReminders(ctx context.Context, now time.Time, limit int) ([]Reminder, error)
+	MarkReminded(ctx context.Context, id int64) error
 }
 
 type User struct {
@@ -49,16 +54,24 @@ type Page struct {
 	NormalizedURL string
 	Title         string
 	Description   string
+	Note          string
 	Status        string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	ReadAt        *time.Time
+	RemindAt      *time.Time
+	RemindedAt    *time.Time
 }
 
 type Stats struct {
 	Total  int64
 	Unread int64
 	Read   int64
+}
+
+type Reminder struct {
+	Page Page
+	User User
 }
 
 func NormalizeLocale(locale string) string {

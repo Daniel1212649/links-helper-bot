@@ -7,6 +7,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Daniel1212649/LinksHelperBot/lib/e"
 	"github.com/Daniel1212649/LinksHelperBot/storage"
@@ -22,6 +23,8 @@ const (
 	deleteCmd = "/delete"
 	statsCmd  = "/stats"
 	langCmd   = "/lang"
+	noteCmd   = "/note"
+	remindCmd = "/remind"
 )
 
 func (p *Processor) doCmd(ctx context.Context, text string, meta Meta) error {
@@ -35,8 +38,12 @@ func (p *Processor) doCmd(ctx context.Context, text string, meta Meta) error {
 
 	log.Printf("got new command %q from chat_id=%d username=%q", text, meta.ChatID, meta.Username)
 
-	if isAddCmd(text) {
-		return p.savePage(ctx, meta, text)
+	if pageURL, note, remindAt, ok, err := parseSaveArgs(text, nowInMoscow()); ok {
+		if err != nil {
+			locale := p.locale(ctx, meta)
+			return p.tg.SendMessage(ctx, meta.ChatID, tr(locale).InvalidReminderDate, mainMenuKeyboard(locale))
+		}
+		return p.savePage(ctx, meta, pageURL, note, remindAt)
 	}
 
 	command, argument := splitCommand(text)
@@ -48,7 +55,15 @@ func (p *Processor) doCmd(ctx context.Context, text string, meta Meta) error {
 	case startCmd:
 		return p.sendHello(ctx, meta)
 	case saveCmd:
-		return p.savePage(ctx, meta, argument)
+		pageURL, note, remindAt, ok, err := parseSaveArgs(argument, nowInMoscow())
+		if err != nil {
+			locale := p.locale(ctx, meta)
+			return p.tg.SendMessage(ctx, meta.ChatID, tr(locale).InvalidReminderDate, mainMenuKeyboard(locale))
+		}
+		if !ok {
+			return p.savePage(ctx, meta, "", "", nil)
+		}
+		return p.savePage(ctx, meta, pageURL, note, remindAt)
 	case listCmd:
 		return p.sendList(ctx, meta)
 	case searchCmd:
@@ -59,13 +74,17 @@ func (p *Processor) doCmd(ctx context.Context, text string, meta Meta) error {
 		return p.sendStats(ctx, meta)
 	case langCmd:
 		return p.setLocaleCommand(ctx, meta, argument)
+	case noteCmd:
+		return p.setNote(ctx, meta, argument)
+	case remindCmd:
+		return p.setReminder(ctx, meta, argument)
 	default:
 		locale := p.locale(ctx, meta)
 		return p.tg.SendMessage(ctx, meta.ChatID, tr(locale).UnknownCommand, mainMenuKeyboard(locale))
 	}
 }
 
-func (p *Processor) savePage(ctx context.Context, meta Meta, pageURL string) (err error) {
+func (p *Processor) savePage(ctx context.Context, meta Meta, pageURL string, note string, remindAt *time.Time) (err error) {
 	defer func() { err = e.WrapIfErr("can't save page", err) }()
 
 	locale := p.locale(ctx, meta)
@@ -74,7 +93,7 @@ func (p *Processor) savePage(ctx context.Context, meta Meta, pageURL string) (er
 		return p.tg.SendMessage(ctx, meta.ChatID, messages.InvalidURL, mainMenuKeyboard(locale))
 	}
 
-	_, err = p.storage.Save(ctx, userFromMeta(meta), pageURL)
+	_, err = p.storage.SaveWithDetails(ctx, userFromMeta(meta), pageURL, strings.TrimSpace(note), remindAt)
 	if errors.Is(err, storage.ErrPageExists) {
 		return p.tg.SendMessage(ctx, meta.ChatID, messages.AlreadyExists, mainMenuKeyboard(locale))
 	}
@@ -164,6 +183,43 @@ func (p *Processor) delete(ctx context.Context, meta Meta, argument string) erro
 	return p.tg.SendMessage(ctx, meta.ChatID, messages.Deleted, mainMenuKeyboard(locale))
 }
 
+func (p *Processor) setNote(ctx context.Context, meta Meta, argument string) error {
+	locale := p.locale(ctx, meta)
+	messages := tr(locale)
+
+	id, note, ok := splitIDAndText(argument)
+	if !ok || note == "" {
+		return p.tg.SendMessage(ctx, meta.ChatID, messages.NoteUsage, mainMenuKeyboard(locale))
+	}
+
+	if err := p.storage.SetNote(ctx, userFromMeta(meta), id, note); err != nil {
+		return e.Wrap("can't set note", err)
+	}
+
+	return p.tg.SendMessage(ctx, meta.ChatID, messages.NoteSaved, mainMenuKeyboard(locale))
+}
+
+func (p *Processor) setReminder(ctx context.Context, meta Meta, argument string) error {
+	locale := p.locale(ctx, meta)
+	messages := tr(locale)
+
+	id, rawDate, ok := splitIDAndText(argument)
+	if !ok || rawDate == "" {
+		return p.tg.SendMessage(ctx, meta.ChatID, messages.ReminderUsage, mainMenuKeyboard(locale))
+	}
+
+	remindAt, err := parseReminderTime(rawDate, nowInMoscow())
+	if err != nil {
+		return p.tg.SendMessage(ctx, meta.ChatID, messages.InvalidReminderDate, mainMenuKeyboard(locale))
+	}
+
+	if err := p.storage.SetReminder(ctx, userFromMeta(meta), id, remindAt); err != nil {
+		return e.Wrap("can't set reminder", err)
+	}
+
+	return p.tg.SendMessage(ctx, meta.ChatID, fmt.Sprintf(messages.ReminderSavedFormat, formatReminderTime(remindAt)), mainMenuKeyboard(locale))
+}
+
 func (p *Processor) sendStats(ctx context.Context, meta Meta) error {
 	locale := p.locale(ctx, meta)
 	stats, err := p.storage.Stats(ctx, userFromMeta(meta))
@@ -217,24 +273,125 @@ func splitCommand(text string) (string, string) {
 	return command, strings.TrimSpace(parts[1])
 }
 
-func isAddCmd(text string) bool {
-	return isURL(text)
+func splitURLAndNote(text string) (string, string) {
+	parts := strings.SplitN(strings.TrimSpace(text), " ", 2)
+	if len(parts) == 0 {
+		return "", ""
+	}
+	if len(parts) == 1 {
+		return parts[0], ""
+	}
+	return parts[0], strings.TrimSpace(parts[1])
+}
+
+func parseSaveArgs(text string, now time.Time) (string, string, *time.Time, bool, error) {
+	pageURL, note := splitURLAndNote(text)
+	if !isURL(pageURL) {
+		return "", "", nil, false, nil
+	}
+
+	note, rawReminder := splitReminderOption(note)
+	if rawReminder == "" {
+		return pageURL, note, nil, true, nil
+	}
+
+	remindAt, err := parseReminderTime(rawReminder, now)
+	if err != nil {
+		return "", "", nil, true, err
+	}
+	return pageURL, note, &remindAt, true, nil
+}
+
+func splitReminderOption(text string) (string, string) {
+	text = strings.TrimSpace(text)
+	const marker = "--remind"
+	if strings.HasPrefix(text, marker+" ") {
+		return "", strings.TrimSpace(strings.TrimPrefix(text, marker))
+	}
+
+	index := strings.LastIndex(text, " "+marker+" ")
+	if index == -1 {
+		return text, ""
+	}
+
+	note := strings.TrimSpace(text[:index])
+	reminder := strings.TrimSpace(text[index+len(" "+marker+" "):])
+	return note, reminder
+}
+
+func splitIDAndText(text string) (int64, string, bool) {
+	parts := strings.SplitN(strings.TrimSpace(text), " ", 2)
+	if len(parts) != 2 {
+		return 0, "", false
+	}
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || id <= 0 {
+		return 0, "", false
+	}
+	return id, strings.TrimSpace(parts[1]), true
+}
+
+func parseReminderTime(raw string, now time.Time) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	layouts := []string{
+		"2006-01-02 15:04",
+		"02.01.2006 15:04",
+		"2006-01-02",
+		"02.01.2006",
+	}
+	for _, layout := range layouts {
+		parsed, err := time.ParseInLocation(layout, raw, moscowLocation)
+		if err != nil {
+			continue
+		}
+		if layout == "2006-01-02" || layout == "02.01.2006" {
+			parsed = time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 9, 0, 0, 0, moscowLocation)
+		}
+		if parsed.Before(now) {
+			return time.Time{}, fmt.Errorf("reminder time is in the past")
+		}
+		return parsed, nil
+	}
+	return time.Time{}, fmt.Errorf("unsupported reminder time format")
+}
+
+func formatReminderTime(t time.Time) string {
+	return t.In(moscowLocation).Format("2006-01-02 15:04")
 }
 
 func isURL(text string) bool {
+	text = strings.TrimSpace(text)
+	lower := strings.ToLower(text)
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") && !strings.Contains(text, ".") {
+		return false
+	}
+
 	_, err := storage.NormalizeURL(text)
 	return err == nil
 }
 
 func formatRandomPage(page *storage.Page) string {
-	return fmt.Sprintf("#%d [%s]\n%s", page.ID, page.Status, page.URL)
+	return formatPage(page)
 }
 
 func formatPages(title string, pages []storage.Page) string {
 	var builder strings.Builder
 	builder.WriteString(title)
 	for _, page := range pages {
-		builder.WriteString(fmt.Sprintf("\n#%d [%s] %s", page.ID, page.Status, page.URL))
+		builder.WriteString("\n")
+		builder.WriteString(formatPage(&page))
+	}
+	return builder.String()
+}
+
+func formatPage(page *storage.Page) string {
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("#%d [%s]\n%s", page.ID, page.Status, page.URL))
+	if strings.TrimSpace(page.Note) != "" {
+		builder.WriteString(fmt.Sprintf("\n📝 %s", page.Note))
+	}
+	if page.RemindAt != nil {
+		builder.WriteString(fmt.Sprintf("\n⏰ %s", formatReminderTime(*page.RemindAt)))
 	}
 	return builder.String()
 }

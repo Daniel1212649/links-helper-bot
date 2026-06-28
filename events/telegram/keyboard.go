@@ -16,6 +16,8 @@ const (
 	cbCmdStats  = "cmd:stats"
 	cbCmdSearch = "cmd:search"
 	cbCmdDelete = "cmd:delete"
+	cbCmdNote   = "cmd:note"
+	cbCmdRemind = "cmd:remind"
 	cbCmdLang   = "cmd:lang"
 	cbLangRU    = "lang:ru"
 	cbLangEN    = "lang:en"
@@ -27,6 +29,14 @@ func cbRead(id int64) string {
 
 func cbDelete(id int64) string {
 	return fmt.Sprintf("del:%d", id)
+}
+
+func cbNote(id int64) string {
+	return fmt.Sprintf("note:%d", id)
+}
+
+func cbRemind(id int64) string {
+	return fmt.Sprintf("remind:%d", id)
 }
 
 func mainMenuKeyboard(locale string) *tgclient.InlineKeyboardMarkup {
@@ -58,6 +68,10 @@ func mainMenuRows(locale string) [][]tgclient.InlineKeyboardButton {
 				{Text: "🎲 Random", CallbackData: cbCmdRnd},
 			},
 			{
+				{Text: "📝 Note", CallbackData: cbCmdNote},
+				{Text: "⏰ Reminder", CallbackData: cbCmdRemind},
+			},
+			{
 				{Text: "📋 List", CallbackData: cbCmdList},
 				{Text: "📊 Stats", CallbackData: cbCmdStats},
 			},
@@ -81,6 +95,10 @@ func mainMenuRows(locale string) [][]tgclient.InlineKeyboardButton {
 			{Text: "🎲 Случайная", CallbackData: cbCmdRnd},
 		},
 		{
+			{Text: "📝 Заметка", CallbackData: cbCmdNote},
+			{Text: "⏰ Напомнить", CallbackData: cbCmdRemind},
+		},
+		{
 			{Text: "📋 Список", CallbackData: cbCmdList},
 			{Text: "📊 Статистика", CallbackData: cbCmdStats},
 		},
@@ -101,16 +119,25 @@ func linkActionKeyboard(locale string, pageID int64) *tgclient.InlineKeyboardMar
 		{Text: "🗑 Удалить", CallbackData: cbDelete(pageID)},
 		{Text: "🎲 Ещё", CallbackData: cbCmdRnd},
 	}
+	detailsRow := []tgclient.InlineKeyboardButton{
+		{Text: "📝 Заметка", CallbackData: cbNote(pageID)},
+		{Text: "⏰ Напомнить", CallbackData: cbRemind(pageID)},
+	}
 	if storage.NormalizeLocale(locale) == storage.LocaleEN {
 		actionRow = []tgclient.InlineKeyboardButton{
 			{Text: "✅ Read", CallbackData: cbRead(pageID)},
 			{Text: "🗑 Delete", CallbackData: cbDelete(pageID)},
 			{Text: "🎲 Another", CallbackData: cbCmdRnd},
 		}
+		detailsRow = []tgclient.InlineKeyboardButton{
+			{Text: "📝 Note", CallbackData: cbNote(pageID)},
+			{Text: "⏰ Remind", CallbackData: cbRemind(pageID)},
+		}
 	}
 
 	rows = append([][]tgclient.InlineKeyboardButton{
 		actionRow,
+		detailsRow,
 	}, rows...)
 
 	return &tgclient.InlineKeyboardMarkup{InlineKeyboard: rows}
