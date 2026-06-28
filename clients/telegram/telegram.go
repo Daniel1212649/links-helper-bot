@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	getUpdatesMethod  = "getUpdates"
-	sendMessageMethod = "sendMessage"
+	getUpdatesMethod      = "getUpdates"
+	sendMessageMethod     = "sendMessage"
+	editMessageTextMethod = "editMessageText"
+	answerCallbackMethod  = "answerCallbackQuery"
 )
 
 type Client struct {
@@ -62,25 +64,77 @@ func (c *Client) Updates(ctx context.Context, offset int, limit int) ([]Update, 
 	return res.Result, nil
 }
 
-func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) error {
+func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, markup *InlineKeyboardMarkup) error {
 	form := url.Values{}
 	form.Add("chat_id", strconv.FormatInt(chatID, 10))
 	form.Add("text", text)
 	form.Add("disable_web_page_preview", "false")
+	if err := addReplyMarkup(form, markup); err != nil {
+		return err
+	}
 
 	data, err := c.doPost(ctx, sendMessageMethod, form)
 	if err != nil {
 		return e.Wrap("can't send message", err)
 	}
 
-	var res MessageResponse
-	if err := json.Unmarshal(data, &res); err != nil {
-		return e.Wrap("can't decode send message response", err)
-	}
-	if !res.Ok {
-		return e.Wrap("can't send message", telegramAPIError(res.ErrorCode, res.Description))
+	return decodeAPIResponse(data, "can't send message")
+}
+
+func (c *Client) EditMessageText(ctx context.Context, chatID int64, messageID int, text string, markup *InlineKeyboardMarkup) error {
+	form := url.Values{}
+	form.Add("chat_id", strconv.FormatInt(chatID, 10))
+	form.Add("message_id", strconv.Itoa(messageID))
+	form.Add("text", text)
+	form.Add("disable_web_page_preview", "false")
+	if err := addReplyMarkup(form, markup); err != nil {
+		return err
 	}
 
+	data, err := c.doPost(ctx, editMessageTextMethod, form)
+	if err != nil {
+		return e.Wrap("can't edit message", err)
+	}
+
+	return decodeAPIResponse(data, "can't edit message")
+}
+
+func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackQueryID string, text string) error {
+	form := url.Values{}
+	form.Add("callback_query_id", callbackQueryID)
+	if text != "" {
+		form.Add("text", text)
+	}
+
+	data, err := c.doPost(ctx, answerCallbackMethod, form)
+	if err != nil {
+		return e.Wrap("can't answer callback query", err)
+	}
+
+	return decodeAPIResponse(data, "can't answer callback query")
+}
+
+func addReplyMarkup(form url.Values, markup *InlineKeyboardMarkup) error {
+	if markup == nil {
+		return nil
+	}
+
+	raw, err := json.Marshal(markup)
+	if err != nil {
+		return e.Wrap("can't encode reply markup", err)
+	}
+	form.Add("reply_markup", string(raw))
+	return nil
+}
+
+func decodeAPIResponse(data []byte, wrapMsg string) error {
+	var res APIResponse
+	if err := json.Unmarshal(data, &res); err != nil {
+		return e.Wrap(wrapMsg+", can't decode response", err)
+	}
+	if !res.Ok {
+		return e.Wrap(wrapMsg, telegramAPIError(res.ErrorCode, res.Description))
+	}
 	return nil
 }
 

@@ -46,7 +46,9 @@ func (p *Processor) Fetch(ctx context.Context, limit int) ([]events.Event, error
 
 	res := make([]events.Event, 0, len(updates))
 	for _, update := range updates {
-		res = append(res, event(update))
+		if event, ok := mapUpdate(update); ok {
+			res = append(res, event)
+		}
 	}
 	p.offset = updates[len(updates)-1].ID + 1
 
@@ -57,6 +59,8 @@ func (p *Processor) Process(ctx context.Context, event events.Event) error {
 	switch event.Type {
 	case events.Message:
 		return p.processMessage(ctx, event)
+	case events.CallbackQuery:
+		return p.processCallback(ctx, event.Meta.(CallbackMeta))
 	default:
 		return e.Wrap("can't process event", ErrUnknownEventType)
 	}
@@ -83,37 +87,39 @@ func meta(event events.Event) (Meta, error) {
 	return res, nil
 }
 
-func event(update tgclient.Update) events.Event {
-	updateType := fetchType(update)
+func mapUpdate(update tgclient.Update) (events.Event, bool) {
+	if update.CallbackQuery != nil {
+		cb := update.CallbackQuery
+		if cb.Message == nil {
+			return events.Event{}, false
+		}
 
-	res := events.Event{
-		Type: updateType,
-		Text: fetchText(update),
+		return events.Event{
+			Type: events.CallbackQuery,
+			Meta: CallbackMeta{
+				CallbackQueryID: cb.ID,
+				ChatID:          cb.Message.Chat.ID,
+				MessageID:       cb.Message.MessageID,
+				TelegramID:      cb.From.ID,
+				Username:        cb.From.Username,
+				Data:            cb.Data,
+			},
+		}, true
 	}
 
-	if updateType == events.Message {
-		res.Meta = Meta{
+	if update.Message == nil {
+		return events.Event{}, false
+	}
+
+	return events.Event{
+		Type: events.Message,
+		Text: update.Message.Text,
+		Meta: Meta{
 			ChatID:     update.Message.Chat.ID,
 			TelegramID: update.Message.From.ID,
 			Username:   update.Message.From.Username,
-		}
-	}
-
-	return res
-}
-
-func fetchText(update tgclient.Update) string {
-	if update.Message == nil {
-		return ""
-	}
-	return update.Message.Text
-}
-
-func fetchType(update tgclient.Update) events.Type {
-	if update.Message == nil {
-		return events.Unknown
-	}
-	return events.Message
+		},
+	}, true
 }
 
 func userFromMeta(meta Meta) storage.User {

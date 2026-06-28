@@ -6,7 +6,7 @@ COPY go.mod ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /out/links-helper-bot .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/links-helper-bot ./cmd/links-helper-bot
 
 FROM alpine:3.21
 

@@ -8,12 +8,24 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-links_helper_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrations/000001_init.up.sql:/docker-entrypoint-initdb.d/000001_init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    restart: "no"
+    volumes:
+      - ./migrations:/migrations:ro
+    command:
+      - -path=/migrations
+      - -database=${DATABASE_URL:-postgres://links_helper:links_helper_password@postgres:5432/links_helper?sslmode=disable}
+      - up
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   bot:
     build: .
@@ -30,8 +42,8 @@ services:
       POLL_INTERVAL: ${POLL_INTERVAL:-1s}
       HTTP_TIMEOUT: ${HTTP_TIMEOUT:-35s}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:

@@ -51,6 +51,8 @@ Start services:
 docker compose up -d --build
 ```
 
+The `migrate` service applies SQL migrations before the bot starts. Existing data stays in the `postgres_data` Docker volume.
+
 Check logs:
 
 ```bash
@@ -64,6 +66,8 @@ cd /opt/links-helper-bot
 git pull
 docker compose up -d --build
 ```
+
+This applies new migrations and recreates the bot container when needed. Do not run `docker compose down -v` during an update, because `-v` removes the PostgreSQL volume.
 
 ## Stop
 

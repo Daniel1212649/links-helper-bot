@@ -1,6 +1,6 @@
 APP_NAME := links-helper-bot
 
-.PHONY: test vet build up down logs compose-config
+.PHONY: test vet build up down logs migrate compose-config
 
 test:
 	go test ./...
@@ -9,7 +9,7 @@ vet:
 	go vet ./...
 
 build:
-	go build -o bin/$(APP_NAME) .
+	go build -o bin/$(APP_NAME) ./cmd/links-helper-bot
 
 up:
 	docker compose up --build
@@ -19,6 +19,9 @@ down:
 
 logs:
 	docker compose logs -f bot
+
+migrate:
+	docker compose run --rm migrate
 
 compose-config:
 	docker compose config
