@@ -1,18 +1,54 @@
+# Secrets and local env
 .env
 .env.*
 !.env.example
+.envrc
 
+# Local Docker overrides (often contain real tokens/passwords)
+docker-compose.override.yml
+docker-compose.local.yml
+
+# IDE and editor
 .idea/
 .vscode/
-.DS_Store
+.cursor/
+*.swp
+*~
 
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
 bin/
 dist/
 build/
-coverage.out
-*.test
-*.exe
 /links-helper-bot
+*.exe
+*.test
+__debug_bin
 
+# Test and profiling
+coverage.out
+*.out
+*.prof
+*.pprof
+
+# Logs and database dumps
+*.log
+*.dump
+*.sql.gz
+*_backup.sql
+backup/
+backups/
+
+# Credentials (just in case)
+*.pem
+*.key
+*.p12
+credentials.json
+secrets/
+
+# Local runtime data
 storage/data/
 tmp/

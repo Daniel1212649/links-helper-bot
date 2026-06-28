@@ -3,18 +3,42 @@
 .env
 .env.*
 !.env.example
+.envrc
+
+docker-compose.override.yml
+docker-compose.local.yml
 
 .idea
 .vscode
+.cursor
 .DS_Store
+Thumbs.db
 
 bin
 dist
 build
-coverage.out
-*.test
-*.exe
 /links-helper-bot
+*.exe
+*.test
+__debug_bin
+
+coverage.out
+*.out
+*.prof
+*.pprof
+
+*.log
+*.dump
+*.sql.gz
+*_backup.sql
+backup
+backups
+
+*.pem
+*.key
+*.p12
+credentials.json
+secrets
 
 storage/data
 tmp
